@@ -1,0 +1,31 @@
+# Core ML
+ultralytics==8.3.0          # YOLOv11
+mediapipe==0.10.14           # Pose estimation
+torch==2.2.0                 # PyTorch (for LSTM classifier)
+torchvision==0.17.0
+numpy==1.26.4
+scipy==1.12.0
+
+# Computer Vision
+opencv-python==4.9.0.80
+opencv-contrib-python==4.9.0.80
+
+# Data Processing
+pandas==2.2.0
+scikit-learn==1.4.0
+matplotlib==3.8.0
+seaborn==0.13.0
+
+# Alert System
+flask==3.0.0                 # Dashboard web server
+flask-socketio==5.3.6        # Real-time WebSocket alerts
+twilio==9.0.0                # SMS alerts
+pygame==2.5.2                # Audible alarm (playsound incompatible with Python 3.12)
+
+# Tracking
+lapx>=0.5.2                  # For ByteTrack (lap incompatible with Python 3.12)
+
+# Utilities
+tqdm==4.66.0
+pyyaml==6.0.1
+Pillow==10.2.0

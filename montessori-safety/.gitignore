@@ -1,0 +1,9 @@
+venv/
+data/raw/
+models/saved/
+__pycache__/
+*.pyc
+.DS_Store
+logs/
+*.mp4
+*.avi

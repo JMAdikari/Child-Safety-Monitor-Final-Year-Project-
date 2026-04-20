@@ -65,11 +65,11 @@ On Windows, download from https://www.python.org/downloads/ — check "Add Pytho
 
 ```bash
 # Create your project folder
-mkdir ~/montessori-safety
+mkdir ~/montessori-safety 
 cd ~/montessori-safety
 
 # Create virtual environment
-python3 -m venv venv
+python3 -m venv venv , for windows- py -m venv venv
 
 # Activate it (you must do this EVERY TIME you open a new terminal)
 source venv/bin/activate        # Linux/Mac
