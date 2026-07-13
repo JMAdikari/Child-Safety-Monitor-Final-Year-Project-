@@ -1,5 +1,5 @@
 venv/
-data/raw/
+data
 models/saved/
 __pycache__/
 *.pyc
