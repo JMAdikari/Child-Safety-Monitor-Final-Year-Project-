@@ -77,8 +77,7 @@ def main():
     print(f"    +/-   = Speed up/slow down")
     print(f"    Q     = Quit")
     print(f"{'='*60}")
-    print(f"\n  Watch the video. Note which track ID does the activity.")
-    print(f"  Write it in your ground_truth.csv as track_id column.\n")
+
 
     paused = False
     speed_multiplier = 1.0
@@ -236,12 +235,7 @@ def main():
     cap.release()
     cv2.destroyAllWindows()
 
-    print(f"\n{'='*60}")
-    print(f"  Done viewing {video_name}")
-    print(f"  Now add the track IDs to your ground_truth.csv")
-    print(f"  Example line:")
-    print(f"    {video_name}.mp4,19,26,fall,3,train,child tripped (track ID 3)")
-    print(f"{'='*60}")
+
 
 
 if __name__ == '__main__':
