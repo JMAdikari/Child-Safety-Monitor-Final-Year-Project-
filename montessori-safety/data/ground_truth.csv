@@ -1,0 +1,156 @@
+video_file,start_sec,end_sec,activity,person_id,split,notes
+raw data/climb/c1.mp4,21.3,32.8,climb,2,train,child climbs 
+raw data/climb/c1.mp4,34.8,37.9,climb,2,train,child climbs 
+raw data/climb/c3.mp4,16.1,23.8,climb,7,train,child climbs 
+raw data/climb/c4.mp4,37.1,47.0,climb,4,train,child climbs 
+raw data/climb/c7.mp4,8.0,8.5,climb,1,train,child climbs
+raw data/climb/c7.mp4,14.8,16.9,climb,1,train,child climbs
+raw data/climb/c8.mp4,18.1,25.9,climb,6,train,child climbs 
+raw data/climb/c9.mp4,9.2,20.4,climb,4,train,child climbs   
+raw data/climb/c9.mp4,33.2,45.1,climb,4,train,child climbs
+raw data/climb/c11.mp4,4.3,4.9,climb,0,train,child climbs
+raw data/climb/c11.mp4,5.1,16.0,climb,3,train,child climbs
+raw data/climb/c15.mp4,12.0,17.1,climb,2,train,child climbs
+raw data/climb/c16.mp4,2.7,17.6,climb,5,train,child climbs
+raw data/climb/c16.mp4,52.8,54.5,climb,21,train,child climbs
+raw data/climb/c16.mp4,64.3,70.0,climb,43,train,child climbs
+raw data/climb/c16.mp4,72.4,79.0,climb,46,train,child climbs
+raw data/climb/c16.mp4,83.6,101.3,climb,52,train,child climbs
+raw data/climb/c18.mp4,20.2,22.8,climb,17,train,child climbs
+raw data/climb/c24.mp4,5.5,12.5,climb,7,train,child climbs
+raw data/climb/c25.mp4,5.0,11.0,climb,1,train,child climbs
+raw data/climb/c25.mp4,29.6,30.0,climb,1,train,child climbs
+raw data/climb/c26.mp4,5.0,12.5,climb,1,train,child climbs
+raw data/climb/c28.mp4,5.1,10.9,climb,1,train,child climbs
+raw data/climb/c28.mp4,11.4,14.1,climb,1,train,child climbs
+raw data/climb/c28.mp4,14.7,19.5,climb,1,train,child climbs
+raw data/climb/c29.mp4,0.9,4.0,climb,1,train,child climbs
+raw data/climb/c29.mp4,26.8,29.8,climb,3,train,child climbs
+raw data/climb/c17.mp4,8.4,19.0,climb,1,train,child climbs
+raw data/climb/c83.mp4,3.7,16.3,climb,1,train,child climbs
+raw data/climb/c84.mp4,3.3,13.4,climb,2,train,child climbs
+raw data/climb/c85.mp4,1.0,5.2,climb,1,train,child climbs
+raw data/climb/c86.mp4,4.5,8.6,climb,1,train,child climbs
+raw data/climb/c30.mp4,17.9,19.7,climb,7,train,child climbs
+raw data/climb/c31.mp4,36.7,38.6,climb,20,train,child climbs
+raw data/climb/c33.mp4,162.7,170.7,climb,100,train,child climbs
+raw data/climb/c34.mp4,0.2,4.0,climb,1,train,child climbs
+raw data/climb/c35.mp4,28.0,36.5,climb,14,train,child climbs
+raw data/climb/c37.mp4,8.0,32.6,climb,1,train,child climbs
+raw data/climb/c37.mp4,39.4,9.7,climb,9,train,child climbs
+raw data/climb/c38.mp4,7.8,17.9,climb,2,train,child climbs
+raw data/climb/c39.mp4,3.7,8.5,climb,10,train,child climbs
+raw data/climb/c41.mp4,4.1,6.3,climb,6,train,child climbs
+raw data/climb/c41.mp4,6.7,8.3,climb,9,train,child climbs
+raw data/climb/c41.mp4,17.5,24.9,climb,2,train,child climbs
+raw data/climb/c42.mp4,0.1,7.3,climb,3,train,child climbs
+raw data/climb/c44.mp4,0.1,9.0,climb,3,train,child climbs
+raw data/climb/c44.mp4,20.1,24.9,climb,3,train,child climbs
+raw data/climb/c45.mp4,0.2,2.6,climb,2,train,child climbs
+raw data/climb/c45.mp4,5.9,8.7,climb,2,train,child climbs
+raw data/climb/c45.mp4,11.7,12.6,climb,11,train,child climbs
+raw data/climb/c45.mp4,14.4,15.8,climb,12,train,child climbs
+raw data/climb/c48.mp4,1.6,4.3,climb,5,train,child climbs
+raw data/climb/c48.mp4,13.1,16.7,climb,1,train,child climbs
+raw data/climb/c48.mp4,28.6,29.9,climb,13,train,child climbs
+raw data/climb/c50.mp4,17.0,19.8,climb,14,train,child climbs
+raw data/climb/c50.mp4,24.5,29.1,climb,15,train,child climbs
+raw data/climb/c54.mp4,24.5,29.1,climb,15,train,child climbs
+raw data/climb/c55.mp4,21.5,24.8,climb,1,train,child climbs
+raw data/climb/c56.mp4,0.1,1.2,climb,1,train,child climbs
+raw data/climb/c57.mp4,0.3,3.5,climb,1,train,child climbs
+raw data/climb/c57.mp4,10.2,21.7,climb,1,train,child climbs
+raw data/climb/c57.mp4,39.8,44.5,climb,4,train,child climbs
+raw data/climb/c57.mp4,41.0,43.8,fall,1,train,child fall
+raw data/climb/c57.mp4,45.3,48.7,climb,7,train,child climbs
+raw data/climb/c57.mp4,49.7,51.6,climb,7,train,child climbs
+raw data/climb/c57.mp4,99.7,106.0,fall,20,train,child fall
+raw data/climb/c58.mp4,0.2,8.7,climb,2,train,child climbs
+raw data/climb/c58.mp4,25.5,49.8,climb,29,train,child climbs
+raw data/climb/c59.mp4,70.8,80.9,fall,28,train,child fall
+raw data/climb/c59.mp4,87.3,90.0,fall,32,train,child fall
+raw data/climb/c59.mp4,195.9,210.0,climb,70,train,child climbs
+raw data/climb/c60.mp4,10.0,13.8,climb,14,train,child climbs
+raw data/climb/c60.mp4,16.4,24.9,climb,17,train,child climbs
+raw data/climb/c61.mp4,1.1,6.6,climb,3,train,child climbs
+raw data/climb/c65.mp4,5.2,10.0,climb,1,train,child climbs
+raw data/climb/c66.mp4,5.6,8.0,climb,9,train,child climbs
+raw data/climb/c67.mp4,12.5,13.8,climb,13,train,child climbs
+raw data/climb/c69.mp4,0.5,3.7,climb,1,train,child climbs
+raw data/climb/c69.mp4,7.8,10.8,climb,11,train,child climbs
+raw data/climb/c69.mp4,25.8,29.0,climb,29,train,child climbs
+raw data/climb/c69.mp4,122.0,125.4,climb,112,train,child climbs
+raw data/climb/c70.mp4,0.7,14.9,climb,4,train,child climbs
+raw data/climb/c71.mp4,2.1,5.8,fall,4,train,child fall
+raw data/climb/c71.mp4,20.5,25.7,climb,13,train,child climbs
+raw data/climb/c71.mp4,35.6,39.4,climb,18,train,child climbs
+raw data/climb/c71.mp4,40.3,48.5,climb,18,train,child climbs
+raw data/climb/c74.mp4,7.5,13.0,climb,9,train,child climbs
+raw data/climb/c75.mp4,1.3,4.0,climb,2,train,child climbs
+raw data/climb/c82.mp4,7.7,8.9,climb,12,train,child climbs
+raw data/climb/c82.mp4,11.4,16.3,climb,1,train,child climbs
+raw data/climb/c82.mp4,27.0,31.4,climb,1,train,child climbs
+raw data/climb/c80.mp4,0.3,2.6,climb,1,train,child climbs
+raw data/climb/c80.mp4,37.8,38.7,fall,13,train,child fall
+raw data/climb/c88.mp4,0.6,6.9,climb,1,train,child climbs
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
