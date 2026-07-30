@@ -1,7 +1,5 @@
 cd montessori-safety
 
-
-
 venv\\Scripts\\activate
 
 
@@ -20,8 +18,6 @@ python test\_setup.py
 
 **Test person detection on webcam or video file.-**
 
-
-
 python test\_detection.py
 
 
@@ -34,11 +30,162 @@ python test\_detection.py
 
 **TEST DOWNLOADED VIDEOS-**
 
-
-
 python test\_activity\_pipeline.py --source "path\\to\\your\\video.mp4"
-
-
 
 python test\_activity\_pipeline.py --source "data/test data/test 8.mp4"
 
+
+
+***TEST RTMPOSE ***
+python test_rtmpose.py --source "path/to/your/daily_video.mp4"
+
+
+***Test YOLORTMPOSE***
+python test_yolo_rtmpose.py --source "data/test data/4.mp4"
+
+*****track ID of dataset videos******
+python track_viewer.py --video "data/child_datasets/self_recorded/daily_videos/daily_003.mp4"
+
+
+******CHECK VIDEO QUALITY******
+python preprocess_videos.py --check "data/child_datasets/self_recorded/daily_videos/daily_001.mp4"
+
+
+
+******RUN SKELETON EXTRACTION******
+python src/pose/extract_child_poses.py --all
+
+
+******VERIFY EXTRACTED DATA*******
+python verify_data.py
+
+
+
+
+
+
+********check all the videos are in the csv file/ground truth***************************
+
+python -c "
+import os, csv
+
+# Check which fall videos are in CSV and which are missing
+fall_folder = 'data/raw data/fall'
+csv_path = 'data/ground_truth.csv'
+
+# Get all videos in fall folder
+fall_videos = set()
+if os.path.exists(fall_folder):
+    for f in os.listdir(fall_folder):
+        if f.lower().endswith(('.mp4','.avi','.mkv','.mov')):
+            fall_videos.add(f)
+
+# Get all videos referenced in CSV
+csv_videos = set()
+with open(csv_path, 'r') as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+        vf = row['video_file'].strip()
+        if 'fall' in vf.lower():
+            csv_videos.add(os.path.basename(vf))
+
+# Compare
+print(f'Videos in fall folder: {len(fall_videos)}')
+print(f'Fall entries in CSV: {len(csv_videos)}')
+
+not_in_csv = fall_videos - csv_videos
+in_csv = fall_videos & csv_videos
+
+print(f'\nIN CSV ({len(in_csv)}):')
+for v in sorted(in_csv):
+    print(f'  OK: {v}')
+
+print(f'\nNOT IN CSV ({len(not_in_csv)}):')
+for v in sorted(not_in_csv):
+    print(f'  MISSING: {v} — needs to be added')
+
+if not not_in_csv:
+    print('\n  All fall videos are in CSV!')
+"
+
+
+
+climb-************************************************************************
+
+python -c "
+import os, csv
+
+climb_folder = 'data/raw data/climb'
+csv_path = 'data/ground_truth.csv'
+
+climb_videos = set()
+if os.path.exists(climb_folder):
+    for f in os.listdir(climb_folder):
+        if f.lower().endswith(('.mp4','.avi','.mkv','.mov')):
+            climb_videos.add(f)
+
+csv_videos = set()
+with open(csv_path, 'r') as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+        vf = row['video_file'].strip()
+        if 'climb' in vf.lower():
+            csv_videos.add(os.path.basename(vf))
+
+print(f'Videos in climb folder: {len(climb_videos)}')
+print(f'Climb entries in CSV: {len(csv_videos)}')
+
+not_in_csv = climb_videos - csv_videos
+in_csv = climb_videos & csv_videos
+
+print(f'\nIN CSV ({len(in_csv)}):')
+for v in sorted(in_csv):
+    print(f'  OK: {v}')
+
+print(f'\nNOT IN CSV ({len(not_in_csv)}):')
+for v in sorted(not_in_csv):
+    print(f'  MISSING: {v}')
+
+if not not_in_csv:
+    print('\n  All climb videos are in CSV!')
+"
+
+to check normal- -**********************************************************
+
+python -c "
+import os, csv
+
+normal_folder = 'data/raw data/normal'
+csv_path = 'data/ground_truth.csv'
+
+normal_videos = set()
+if os.path.exists(normal_folder):
+    for f in os.listdir(normal_folder):
+        if f.lower().endswith(('.mp4','.avi','.mkv','.mov')):
+            normal_videos.add(f)
+
+csv_videos = set()
+with open(csv_path, 'r') as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+        vf = row['video_file'].strip()
+        if 'normal' in vf.lower():
+            csv_videos.add(os.path.basename(vf))
+
+print(f'Videos in normal folder: {len(normal_videos)}')
+print(f'Normal entries in CSV: {len(csv_videos)}')
+
+not_in_csv = normal_videos - csv_videos
+in_csv = normal_videos & csv_videos
+
+print(f'\nIN CSV ({len(in_csv)}):')
+for v in sorted(in_csv):
+    print(f'  OK: {v}')
+
+print(f'\nNOT IN CSV ({len(not_in_csv)}):')
+for v in sorted(not_in_csv):
+    print(f'  MISSING: {v}')
+
+if not not_in_csv:
+    print('\n  All normal videos are in CSV!')
+"
