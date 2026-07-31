@@ -120,15 +120,10 @@ class AlertSystem:
         return messages.get(activity_type, f"Unknown activity: {activity_type}")
     
     def _play_alarm(self):
-        """Play audible alarm sound."""
         try:
-            import os
-            # Use system beep as fallback
-            os.system('echo -e "\a"')
-            # For a proper alarm sound, place an alarm.wav in the project:
-            # from playsound import playsound
-            # playsound('assets/alarm.wav')
-        except Exception as e:
+            import winsound
+            winsound.Beep(1000, 500)
+        except Exception:
             pass
     
     def _send_sms(self, alert):
