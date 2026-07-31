@@ -256,7 +256,7 @@ def main():
     )
     parser.add_argument('--input', type=str, required=False,
                         help='Input video file or directory')
-    parser.add_argument('--output', type=str, default='data/child_datasets/self_recorded/cleaned/',
+    parser.add_argument('--output', type=str, default='data/raw data/cleaned/',
                         help='Output directory for cleaned videos')
     parser.add_argument('--check', type=str, default=None,
                         help='Just check quality of a video (no processing)')
