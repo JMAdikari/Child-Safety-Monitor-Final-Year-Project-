@@ -62,6 +62,13 @@ python verify_data.py
 
 
 
+****************add normal videos to csv file*****************
+python add_normal_videos.py
+
+
+
+
+
 
 
 ********check all the videos are in the csv file/ground truth***************************
