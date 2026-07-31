@@ -1,6 +1,7 @@
 venv/
 data/raw data
 data/test data
+data/id fails raw data
 data/processed
 models/saved/
 __pycache__/
