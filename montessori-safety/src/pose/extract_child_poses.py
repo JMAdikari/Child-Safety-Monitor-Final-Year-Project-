@@ -12,8 +12,8 @@ This script:
 6. Saves labeled .npy files ready for LSTM training
 
 Usage:
-    python extract_child_poses.py --video "data/child_datasets/self_recorded/rec_fall_01.mp4"
-    python extract_child_poses.py --all    (process all videos in ground_truth.csv)
+    python src/pose/extract_child_poses.py --video "data/raw data/climb/c1.mp4"
+    python src/pose/extract_child_poses.py --all
 
 Prerequisites:
     pip install ultralytics rtmlib onnxruntime pandas numpy
@@ -34,8 +34,8 @@ CONFIDENCE_THRESHOLD = 0.3   # Minimum YOLO detection confidence
 KEYPOINT_THRESHOLD = 0.3     # Minimum RTMPose keypoint confidence
 
 # Paths
-VIDEO_DIR = "data/child_datasets/self_recorded"
-GROUND_TRUTH_PATH = "data/child_datasets/self_recorded/ground_truth.csv"
+VIDEO_DIR = "data"
+GROUND_TRUTH_PATH = "data/ground_truth.csv"
 OUTPUT_DIR = "data/processed/child_pose_sequences"
 
 # Activity labels — only 3 classes for the CNN-LSTM model
@@ -77,10 +77,10 @@ def load_ground_truth(csv_path):
     return annotations
 
 
-def get_activity_at_time(time_sec, annotations_for_video):
+def get_activity_at_time(time_sec, annotations_for_video, video_split='train'):
     """
     Given a timestamp, return the activity label and track ID from ground truth.
-    If no annotation covers this timestamp, return 'normal' (default).
+    If no annotation covers this timestamp, return 'normal' using the video's split.
     """
     for ann in annotations_for_video:
         if ann['start'] <= time_sec <= ann['end']:
@@ -90,7 +90,7 @@ def get_activity_at_time(time_sec, annotations_for_video):
             if pid and pid.isdigit():
                 track_id_from_csv = int(pid)
             return ann['activity'], ann['split'], track_id_from_csv
-    return 'normal', 'train', None  # Default: unlabeled time = normal
+    return 'normal', video_split, None  # Default: unlabeled time = normal, inherits video split
 
 
 def identify_active_person(track_skeletons, activity, zone_boundary=None):
@@ -238,8 +238,11 @@ def extract_sequences_from_video(video_path, annotations, output_dir):
     # Collected training samples
     all_sequences = []  # [(sequence_array, label_int, split_str)]
 
+    # Determine this video's split from its first annotation (all rows for a video share the same split)
+    video_split = annotations[0]['split'] if annotations else 'train'
+
     frame_idx = 0
-    
+
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -249,7 +252,7 @@ def extract_sequences_from_video(video_path, annotations, output_dir):
 
         # Step 1: Get current activity from ground truth
         activity_label, split, csv_track_id = get_activity_at_time(
-            current_time, annotations
+            current_time, annotations, video_split
         )
 
         # Step 2: YOLO detection + ByteTrack tracking
@@ -523,10 +526,11 @@ def main():
 
     if args.video:
         # Process single video
-        video_name = Path(args.video).name
-        video_annotations = annotations.get(video_name, [])
+        # Key must match the video_file column in the CSV (relative to VIDEO_DIR)
+        video_key = Path(args.video).as_posix().replace(VIDEO_DIR + '/', '').replace(VIDEO_DIR + '\\', '')
+        video_annotations = annotations.get(video_key, [])
         if not video_annotations:
-            print(f"[WARNING] No annotations found for {video_name} in ground_truth.csv")
+            print(f"[WARNING] No annotations found for {video_key} in ground_truth.csv")
             print(f"  All frames will be labeled as 'normal'")
             video_annotations = []
         
