@@ -59,6 +59,7 @@ EPOCHS = 80               # More epochs for CNN-LSTM
 BATCH_SIZE = 32
 LEARNING_RATE = 0.001
 PATIENCE = 15             # Early stopping patience
+NORMAL_CAP = 5000         # Max normal sequences to keep — prevents majority class domination
 
 # Paths
 DATA_DIR = "data/processed/child_pose_sequences"
@@ -157,14 +158,23 @@ class CNNLSTMClassifier(nn.Module):
 def load_data():
     """Load extracted skeleton sequences and labels."""
 
-    # Check for augmented data first
+    # Normalized data takes priority — raw pixel coordinates make the model
+    # learn screen position instead of body motion
+    norm_seq = os.path.join(DATA_DIR, "all_train_sequences_normalized.npy")
     aug_seq = os.path.join(DATA_DIR, "all_train_sequences_augmented.npy")
-    aug_lbl = os.path.join(DATA_DIR, "all_train_labels_augmented.npy")
+
+    if os.path.exists(norm_seq):
+        print("[INFO] Using NORMALIZED training data")
+        train_seqs = np.load(norm_seq)
+        train_lbls = np.load(os.path.join(DATA_DIR, "all_train_labels_normalized.npy"))
+        test_seqs = np.load(os.path.join(DATA_DIR, "all_test_sequences_normalized.npy"))
+        test_lbls = np.load(os.path.join(DATA_DIR, "all_test_labels_normalized.npy"))
+        return _summarize(train_seqs, train_lbls, test_seqs, test_lbls)
 
     if os.path.exists(aug_seq):
         print("[INFO] Using AUGMENTED training data")
         train_seqs = np.load(aug_seq)
-        train_lbls = np.load(aug_lbl)
+        train_lbls = np.load(os.path.join(DATA_DIR, "all_train_labels_augmented.npy"))
     else:
         print("[INFO] Using original training data")
         train_seqs = np.load(os.path.join(DATA_DIR, "all_train_sequences.npy"))
@@ -172,6 +182,22 @@ def load_data():
 
     test_seqs = np.load(os.path.join(DATA_DIR, "all_test_sequences.npy"))
     test_lbls = np.load(os.path.join(DATA_DIR, "all_test_labels.npy"))
+
+    return _summarize(train_seqs, train_lbls, test_seqs, test_lbls)
+
+
+def _summarize(train_seqs, train_lbls, test_seqs, test_lbls):
+
+    # Undersample normal class — keeps fall/climb fully, caps normal at NORMAL_CAP
+    normal_idx = np.where(train_lbls == 0)[0]
+    if len(normal_idx) > NORMAL_CAP:
+        keep_normal = np.random.choice(normal_idx, size=NORMAL_CAP, replace=False)
+        other_idx = np.where(train_lbls != 0)[0]
+        final_idx = np.concatenate([keep_normal, other_idx])
+        np.random.shuffle(final_idx)
+        train_seqs = train_seqs[final_idx]
+        train_lbls = train_lbls[final_idx]
+        print(f"[BALANCE] Normal undersampled: {len(normal_idx)} → {NORMAL_CAP}")
 
     print(f"\n[DATA] Training: {train_seqs.shape[0]} sequences, shape {train_seqs.shape}")
     print(f"[DATA] Testing:  {test_seqs.shape[0]} sequences, shape {test_seqs.shape}")
@@ -228,7 +254,7 @@ def train():
     criterion = nn.CrossEntropyLoss(weight=weights_tensor)
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='max', patience=7, factor=0.5, verbose=True
+        optimizer, mode='max', patience=7, factor=0.5
     )
 
     # Training loop
