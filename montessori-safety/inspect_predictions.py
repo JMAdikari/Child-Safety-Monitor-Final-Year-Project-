@@ -11,6 +11,7 @@ import torch
 
 sys.path.insert(0, '.')
 from src.classification.train_cnn_lstm import CNNLSTMClassifier
+from src.pose.extract_child_poses import onnx_device
 from normalize_sequences import normalize_sequences
 
 WINDOW_SIZE = 15
@@ -50,7 +51,10 @@ def run(video_path, model_path, output_path, alert_threshold):
     if not os.path.exists(yolo_path):
         yolo_path = "yolo11n.pt"
     yolo = YOLO(yolo_path)
-    body = Body(mode='lightweight', backend='onnxruntime', device=str(device))
+
+    # torch and onnxruntime report CUDA independently — rtmlib needs the
+    # onnxruntime answer, not the torch one
+    body = Body(mode='lightweight', backend='onnxruntime', device=onnx_device())
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
