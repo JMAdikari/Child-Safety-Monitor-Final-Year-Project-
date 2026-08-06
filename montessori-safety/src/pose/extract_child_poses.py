@@ -33,6 +33,10 @@ STRIDE = 8             # Slide by 8 frames (overlap for more training data)
 CONFIDENCE_THRESHOLD = 0.3   # Minimum YOLO detection confidence
 KEYPOINT_THRESHOLD = 0.3     # Minimum RTMPose keypoint confidence
 
+# A gapless window spans WINDOW_SIZE - 1 frames; anything much wider means the
+# person went undetected in between and the sequence contains a discontinuity
+MAX_WINDOW_SPAN = int((WINDOW_SIZE - 1) * 1.5)
+
 # Paths
 VIDEO_DIR = "data"
 GROUND_TRUTH_PATH = "data/ground_truth.csv"
@@ -45,6 +49,17 @@ LABEL_MAP = {
     "fall": 1,
     "climb": 2,
 }
+
+
+def onnx_device():
+    """Pick cuda only when onnxruntime actually has the CUDA provider available."""
+    try:
+        import onnxruntime as ort
+        if 'CUDAExecutionProvider' in ort.get_available_providers():
+            return 'cuda'
+    except ImportError:
+        pass
+    return 'cpu'
 
 
 def load_ground_truth(csv_path):
@@ -217,8 +232,9 @@ def extract_sequences_from_video(video_path, annotations, output_dir):
     
     yolo = YOLO(yolo_path)
 
-    print(f"[INFO] Loading RTMPose-m...")
-    body = Body(mode='lightweight', backend='onnxruntime', device='cpu')
+    pose_device = onnx_device()
+    print(f"[INFO] Loading RTMPose-m on {pose_device}...")
+    body = Body(mode='lightweight', backend='onnxruntime', device=pose_device)
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -237,9 +253,15 @@ def extract_sequences_from_video(video_path, annotations, output_dir):
 
     # Collected training samples
     all_sequences = []  # [(sequence_array, label_int, split_str)]
+    gap_rejected = 0
 
     # Determine this video's split from its first annotation (all rows for a video share the same split)
     video_split = annotations[0]['split'] if annotations else 'train'
+
+    # Only one child per row was annotated, so other children in a fall/climb
+    # video may be performing the same action while labeled normal. Normal is
+    # taken from the dedicated normal videos instead.
+    video_has_danger = any(a['activity'] != 'normal' for a in annotations)
 
     frame_idx = 0
 
@@ -391,12 +413,19 @@ def extract_sequences_from_video(video_path, annotations, output_dir):
                 else:
                     label = 'normal'
                 
-                # Create the sequence array
-                sequence = np.array([w['features'] for w in window])  # (15, 51)
-                label_int = LABEL_MAP.get(label, 0)
-                split_str = splits_in_window[0]
-                
-                all_sequences.append((sequence, label_int, split_str))
+                if not (label == 'normal' and video_has_danger):
+                    # A person missing from several frames leaves a gap in their
+                    # buffer, so a window can span far more real time than it
+                    # should and the LSTM reads the jump across it as sudden motion
+                    window_span = window[-1]['frame_idx'] - window[0]['frame_idx']
+
+                    if window_span > MAX_WINDOW_SPAN:
+                        gap_rejected += 1
+                    else:
+                        sequence = np.array([w['features'] for w in window])  # (15, 51)
+                        label_int = LABEL_MAP.get(label, 0)
+                        split_str = splits_in_window[0]
+                        all_sequences.append((sequence, label_int, split_str))
                 
                 # Slide the window forward by STRIDE
                 person_buffers[track_id] = buffer[STRIDE:]
@@ -420,6 +449,11 @@ def extract_sequences_from_video(video_path, annotations, output_dir):
     # Step 7: Save sequences grouped by class and split
     print(f"\n[INFO] Extraction complete for {video_name}")
     print(f"[INFO] Total sequences: {len(all_sequences)}")
+
+    considered = len(all_sequences) + gap_rejected
+    if considered:
+        print(f"[INFO] Rejected for temporal gaps: {gap_rejected} of {considered} "
+              f"({gap_rejected / considered * 100:.1f}%)")
     
     # Count per class
     class_counts = defaultdict(int)
