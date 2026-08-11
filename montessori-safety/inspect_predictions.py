@@ -38,7 +38,8 @@ def load_model(model_path, device):
     return model
 
 
-def run(video_path, model_path, output_path, alert_threshold):
+def run(video_path, model_path, output_path, alert_threshold,
+        display=True, save=True):
     from ultralytics import YOLO
     from rtmlib import Body
 
@@ -66,13 +67,19 @@ def run(video_path, model_path, output_path, alert_threshold):
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
-    writer = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'),
-                             fps, (width, height))
+    writer = None
+    if save:
+        os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+        writer = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'),
+                                 fps, (width, height))
+
+    if display:
+        print("[INFO] Live view — 'q' quits, space pauses, any key steps while paused")
 
     buffers = defaultdict(lambda: deque(maxlen=WINDOW_SIZE))
     detections = []
     frame_idx = 0
+    quit_early = False
 
     while True:
         ret, frame = cap.read()
@@ -146,7 +153,19 @@ def run(video_path, model_path, output_path, alert_threshold):
 
         cv2.putText(frame, f"{current_time:6.2f}s", (10, 28),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-        writer.write(frame)
+
+        if writer is not None:
+            writer.write(frame)
+
+        if display:
+            cv2.imshow('predictions', frame)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord(' '):
+                key = cv2.waitKey(0) & 0xFF   # hold on this frame until a key
+            if key == ord('q'):
+                quit_early = True
+                print(f"\n[INFO] Stopped at {current_time:.1f}s")
+                break
 
         frame_idx += 1
         if fps > 0 and frame_idx % int(fps * 10) == 0:
@@ -154,9 +173,14 @@ def run(video_path, model_path, output_path, alert_threshold):
                   f"alerts so far: {len(detections)}")
 
     cap.release()
-    writer.release()
+    if writer is not None:
+        writer.release()
+    if display:
+        cv2.destroyAllWindows()
 
-    print(f"\n[INFO] Annotated video: {output_path}")
+    if writer is not None:
+        note = ' (partial — stopped early)' if quit_early else ''
+        print(f"\n[INFO] Annotated video: {output_path}{note}")
     print(f"[INFO] Frames: {frame_idx}, alerts above {alert_threshold:.2f}: "
           f"{len(detections)}")
 
@@ -186,6 +210,10 @@ def main():
     parser.add_argument('--output', type=str, default=None)
     parser.add_argument('--threshold', type=float, default=0.5,
                         help='Only report non-normal predictions above this confidence')
+    parser.add_argument('--no-display', action='store_true',
+                        help='Skip the live window (required on Colab — no display there)')
+    parser.add_argument('--no-save', action='store_true',
+                        help='Watch live without writing an output video')
     args = parser.parse_args()
 
     output = args.output
@@ -193,7 +221,8 @@ def main():
         stem = os.path.splitext(os.path.basename(args.video))[0]
         output = f"evaluation/inspection/{stem}_predicted.mp4"
 
-    run(args.video, args.model, output, args.threshold)
+    run(args.video, args.model, output, args.threshold,
+        display=not args.no_display, save=not args.no_save)
 
 
 if __name__ == '__main__':
