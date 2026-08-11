@@ -1,0 +1,43 @@
+# Claude Code local state
+.claude/
+
+# Video — every format, anywhere
+*.mp4
+*.MOV
+*.mov
+*.avi
+*.mkv
+*.wmv
+*.flv
+*.m4v
+
+# Extracted data and models
+*.npy
+*.pth
+*.pt
+
+# All raw footage folders
+**/data/raw data/
+**/data/test data/
+**/data/processed/
+**/data/id fails raw data/
+**/data/extra normal raw data not trained/
+**/data/child_datasets/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Output
+logs/
+**/evaluation/inspection/
+
+# Scratch
+*.tmp
+scratchpad/
+
+
+# Internal planning and analysis documents
+*.md
+!README.md
