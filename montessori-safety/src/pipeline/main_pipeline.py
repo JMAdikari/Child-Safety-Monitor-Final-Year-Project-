@@ -1,248 +1,241 @@
-"""
-MAIN PIPELINE — Integrates all modules into a single real-time system.
-
-Camera → YOLO Person Detection → ByteTrack Tracking → MediaPipe Pose →
-    → LSTM Classifier + Rule-Based Detector (fall/climb/fight)
-    → Zone Monitor (leaving/danger zone)
-    → Alert System
+"""Real-time child safety monitor: camera or video in, alerts out.
 
 Usage:
-    python src/pipeline/main_pipeline.py --camera 0 --zones configs/zones.json
+    python src/pipeline/main_pipeline.py --source 0
+    python src/pipeline/main_pipeline.py --source "data/raw data/climb/c3.mp4"
+    python src/pipeline/main_pipeline.py --source 0 --zones configs/zones.json
 """
 
-import cv2
-import time
-import argparse
+import os
 import sys
-sys.path.append('.')
+import argparse
+
+import cv2
+import numpy as np
+
+sys.path.insert(0, '.')
 
 from src.detection.person_detector import PersonDetector
-from src.pose.pose_extractor import PoseExtractor
+from src.pose.rtmpose_extractor import RTMPoseExtractor
 from src.classification.activity_classifier import ActivityClassifier
 from src.classification.rule_based_detector import RuleBasedDetector
-from src.zones.zone_monitor import ZoneMonitor
 from src.alerts.alert_system import AlertSystem
+from src.pose.extract_child_poses import onnx_device
+
+KEYPOINT_THRESHOLD = 0.3
+ALERT_THRESHOLD = 0.70
+
+COLORS = {
+    'normal': (0, 200, 0),
+    'fall': (0, 0, 255),
+    'climb': (0, 140, 255),
+    'pending': (160, 160, 160),
+}
 
 
-class SafetyMonitoringPipeline:
-    """
-    Complete end-to-end safety monitoring pipeline.
-    """
-    
-    def __init__(self, camera_source=0, zone_config=None, 
-                 model_path="models/saved/activity_lstm_best.pth",
-                 enable_sound=True, enable_sms=False):
-        
-        print("Initializing Safety Monitoring Pipeline...")
-        
-        # Module 1: Person Detection
-        print("  Loading YOLO person detector...")
-        self.detector = PersonDetector(confidence=0.5)
-        
-        # Module 2a: Pose Extraction
-        print("  Loading MediaPipe pose extractor...")
-        self.pose_extractor = PoseExtractor()
-        
-        # Module 2b: Activity Classification (LSTM)
-        print("  Loading activity classifier...")
-        self.classifier = ActivityClassifier(model_path=model_path)
-        
-        # Module 2c: Rule-based detector (safety net)
-        self.rule_detector = RuleBasedDetector()
-        
-        # Module 3: Zone Monitoring
-        print("  Loading zone monitor...")
-        self.zone_monitor = ZoneMonitor(config_path=zone_config)
-        
-        # Alert System
-        print("  Initializing alert system...")
-        self.alert_system = AlertSystem(
-            cooldown_seconds=10,
-            enable_sound=enable_sound,
-            enable_sms=enable_sms
-        )
-        
-        # Camera
-        self.cap = cv2.VideoCapture(camera_source)
-        
-        # FPS tracking
-        self.fps = 0
-        self.frame_count = 0
-        self.start_time = time.time()
-        
-        print("Pipeline ready!\n")
-    
-    def process_frame(self, frame):
-        """
-        Process a single frame through the entire pipeline.
-        
-        Returns:
-            annotated_frame: Frame with all visualizations drawn
-            alerts: List of any triggered alerts
-        """
-        alerts = []
-        
-        # --- STEP 1: Detect persons ---
-        detections = self.detector.detect(frame)
-        active_track_ids = set()
-        
-        for det in detections:
-            track_id = det['track_id']
-            if track_id is None:
-                continue
-            
-            active_track_ids.add(track_id)
-            bbox = det['bbox']
-            
-            # --- STEP 2: Extract pose ---
-            pose_result = self.pose_extractor.extract_pose(frame, bbox)
-            
-            if pose_result['valid']:
-                # Draw skeleton
-                frame = self.pose_extractor.draw_pose(frame, pose_result['landmarks'])
-                
-                # Compute features
-                features = self.pose_extractor.compute_activity_features(
-                    pose_result['normalized_landmarks']
-                )
-                
-                if features:
-                    # --- STEP 3a: LSTM Classification ---
-                    lstm_result = self.classifier.update_and_classify(
-                        track_id, features['landmark_vector']
-                    )
-                    
-                    # --- STEP 3b: Rule-based detection ---
-                    self.rule_detector.update(track_id, features)
-                    
-                    # Determine final activity
-                    activity = 'normal'
-                    confidence = 0.0
-                    
-                    # Check LSTM result
-                    if lstm_result and lstm_result['class'] != 'normal':
-                        activity = lstm_result['class']
-                        confidence = lstm_result['confidence']
-                    
-                    # Check rule-based fall detection
-                    is_fall, fall_conf = self.rule_detector.detect_fall(track_id)
-                    if is_fall and fall_conf > confidence:
-                        activity = 'fall'
-                        confidence = fall_conf
-                    
-                    # Check rule-based climb detection
-                    is_climb, climb_conf = self.rule_detector.detect_climb(track_id)
-                    if is_climb and climb_conf > confidence:
-                        activity = 'climb'
-                        confidence = climb_conf
-                    
-                    # Trigger alert if dangerous activity detected
-                    if activity != 'normal' and confidence > 0.6:
-                        alert_sent = self.alert_system.trigger_alert(
-                            activity_type=activity,
-                            confidence=confidence,
-                            person_id=track_id,
-                            location=((bbox[0]+bbox[2])//2, (bbox[1]+bbox[3])//2),
-                            frame=frame
-                        )
-                        if alert_sent:
-                            alerts.append({'activity': activity, 'person_id': track_id})
-                    
-                    # Draw activity label
-                    x1, y1 = bbox[0], bbox[1]
-                    color = (0, 0, 255) if activity != 'normal' else (0, 255, 0)
-                    label = f"#{track_id} {activity} ({confidence:.0%})"
-                    cv2.putText(frame, label, (x1, y1 - 10),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-            
-            # --- STEP 4: Zone monitoring ---
-            zone_alerts = self.zone_monitor.check_person(track_id, bbox)
-            for za in zone_alerts:
-                self.alert_system.trigger_alert(
-                    activity_type=za['type'],
-                    confidence=za['confidence'],
-                    person_id=track_id,
-                    location=za['location']
-                )
-                alerts.append(za)
-        
-        # --- STEP 3c: Fight detection (between pairs) ---
-        detection_list = [d for d in detections if d['track_id'] is not None]
-        for i in range(len(detection_list)):
-            for j in range(i + 1, len(detection_list)):
-                tid_1 = detection_list[i]['track_id']
-                tid_2 = detection_list[j]['track_id']
-                
-                if tid_1 in self.rule_detector.history and tid_2 in self.rule_detector.history:
-                    feat_1 = self.rule_detector.history[tid_1][-1] if self.rule_detector.history[tid_1] else None
-                    feat_2 = self.rule_detector.history[tid_2][-1] if self.rule_detector.history[tid_2] else None
-                    
-                    if feat_1 and feat_2:
-                        is_fight, fight_conf = self.rule_detector.detect_fight(
-                            tid_1, tid_2, feat_1, feat_2
-                        )
-                        if is_fight and fight_conf > 0.6:
-                            self.alert_system.trigger_alert(
-                                'fight', fight_conf, tid_1
-                            )
-        
-        # Cleanup old tracks
-        self.rule_detector.cleanup_old_tracks(active_track_ids)
-        self.classifier.cleanup(active_track_ids)
-        self.zone_monitor.cleanup(active_track_ids)
-        
-        # Draw zones
-        frame = self.zone_monitor.draw_zones(frame)
-        
-        # Draw FPS
-        self.frame_count += 1
-        elapsed = time.time() - self.start_time
-        if elapsed > 0:
-            self.fps = self.frame_count / elapsed
-        cv2.putText(frame, f"FPS: {self.fps:.1f}", (10, 30),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        
-        return frame, alerts
-    
-    def run(self):
-        """Run the full pipeline on live camera feed."""
-        print("Starting Safety Monitoring System...")
-        print("Press 'q' to quit\n")
-        
+def match_pose_to_box(bbox, keypoints_all, scores_all):
+    """Nearest skeleton centre to the box centre, or None if nothing is close."""
+    if keypoints_all is None or len(keypoints_all) == 0:
+        return None
+
+    bx = (bbox[0] + bbox[2]) / 2
+    by = (bbox[1] + bbox[3]) / 2
+    # A skeleton belonging to this person cannot be further away than the box
+    max_dist = max(bbox[2] - bbox[0], bbox[3] - bbox[1])
+
+    best, best_dist = None, float('inf')
+    for i in range(len(keypoints_all)):
+        valid = scores_all[i] > KEYPOINT_THRESHOLD
+        if valid.sum() < 3:
+            continue
+        kps = keypoints_all[i]
+        d = np.hypot(bx - kps[valid, 0].mean(), by - kps[valid, 1].mean())
+        if d < best_dist:
+            best_dist, best = d, i
+
+    return best if best_dist <= max_dist else None
+
+
+def run(source, model_path, zones_path, alert_threshold, use_rules,
+        display, save_path):
+    detector = PersonDetector(confidence=0.5)
+    pose = RTMPoseExtractor(device=onnx_device())
+    classifier = ActivityClassifier(model_path=model_path)
+    rules = RuleBasedDetector() if use_rules else None
+
+    zones = None
+    if zones_path and os.path.exists(zones_path):
+        from src.zones.zone_monitor import ZoneMonitor
+        zones = ZoneMonitor(config_path=zones_path)
+        print(f"  ZoneMonitor: {zones_path}")
+    elif zones_path:
+        print(f"  [WARNING] Zone config not found: {zones_path} — zones disabled")
+
+    alerts = AlertSystem(cooldown_seconds=10, enable_sound=True)
+
+    cap = cv2.VideoCapture(int(source) if str(source).isdigit() else source)
+    if not cap.isOpened():
+        print(f"[ERROR] Cannot open source: {source}")
+        return
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    writer = None
+    if save_path:
+        os.makedirs(os.path.dirname(save_path) or '.', exist_ok=True)
+        writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'),
+                                 fps, (width, height))
+
+    print(f"\n  Source: {source} ({width}x{height} @ {fps:.1f}fps)")
+    print(f"  Alert threshold: {alert_threshold}")
+    if display:
+        print("  'q' quits, space pauses\n")
+
+    frame_idx = 0
+    try:
         while True:
-            ret, frame = self.cap.read()
+            ret, frame = cap.read()
             if not ret:
                 break
-            
-            annotated_frame, alerts = self.process_frame(frame)
-            
-            cv2.imshow("Safety Monitoring System", annotated_frame)
-            
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-        
-        # Save alert log
-        self.alert_system.save_log()
-        self.cap.release()
-        cv2.destroyAllWindows()
-        print(f"\nSession complete. {len(self.alert_system.alert_log)} total alerts.")
+
+            detections = detector.detect(frame)
+            keypoints_all, scores_all = pose.extract(frame)
+
+            active_ids = []
+
+            for det in detections:
+                tid = det['track_id']
+                if tid is None:
+                    continue
+                active_ids.append(tid)
+                bbox = det['bbox']
+
+                idx = match_pose_to_box(bbox, keypoints_all, scores_all)
+                if idx is None:
+                    continue
+
+                features, geom = pose.compute_features(
+                    keypoints_all[idx], scores_all[idx]
+                )
+
+                label, conf, source_tag = 'pending', 0.0, ''
+
+                if geom['valid_keypoints'] >= 4:
+                    result = classifier.predict(tid, features)
+                    if result is not None:
+                        label = result['activity']
+                        conf = result['confidence']
+                        source_tag = 'model'
+
+                    if rules is not None:
+                        rule_hit = rules.detect(tid, geom)
+                        # The rules exist to catch what the model misses, so
+                        # they only override a 'normal' verdict
+                        if rule_hit and label in ('normal', 'pending'):
+                            label = rule_hit['activity']
+                            conf = rule_hit['confidence']
+                            source_tag = 'rule'
+
+                if label in ('fall', 'climb') and conf >= alert_threshold:
+                    alerts.trigger_alert(
+                        activity_type=label,
+                        confidence=conf,
+                        person_id=tid,
+                        location=((bbox[0] + bbox[2]) // 2, bbox[3]),
+                        frame=frame,
+                    )
+
+                if zones is not None:
+                    for za in zones.check_person(tid, bbox):
+                        alerts.trigger_alert(
+                            activity_type=za['type'],
+                            confidence=za['confidence'],
+                            person_id=tid,
+                            location=za['location'],
+                            frame=frame,
+                        )
+
+                colour = COLORS.get(label, COLORS['pending'])
+                cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), colour, 2)
+
+                if label == 'pending':
+                    have, need = classifier.buffer_progress(tid)
+                    text = f"#{tid} warming up {have}/{need}"
+                else:
+                    text = f"#{tid} {label} {conf:.2f}"
+                    if source_tag == 'rule':
+                        text += " [rule]"
+
+                cv2.putText(frame, text, (bbox[0], max(bbox[1] - 8, 15)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, colour, 2)
+
+            classifier.cleanup(active_ids)
+            if rules is not None:
+                rules.cleanup(active_ids)
+            if zones is not None:
+                zones.cleanup(active_ids)
+                frame = zones.draw_zones(frame)
+
+            cv2.putText(frame, f"people: {len(active_ids)}  alerts: {len(alerts.alert_log)}",
+                        (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+            if writer is not None:
+                writer.write(frame)
+
+            if display:
+                cv2.imshow('child safety monitor', frame)
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord(' '):
+                    key = cv2.waitKey(0) & 0xFF
+                if key == ord('q'):
+                    break
+
+            frame_idx += 1
+
+    except KeyboardInterrupt:
+        print("\n  Interrupted")
+    finally:
+        cap.release()
+        if writer is not None:
+            writer.release()
+        if display:
+            cv2.destroyAllWindows()
+
+    print(f"\n  Frames processed: {frame_idx}")
+    print(f"  Alerts raised: {len(alerts.alert_log)}")
+    for a in alerts.get_recent_alerts(20):
+        print(f"    {a['timestamp'][11:19]}  {a['message']}")
+
+    if alerts.alert_log:
+        os.makedirs('logs', exist_ok=True)
+        alerts.save_log('logs/alert_log.json')
+        print("\n  Alert log: logs/alert_log.json")
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Child Safety Monitoring System")
-    parser.add_argument('--camera', default=0, help='Camera index or video path')
-    parser.add_argument('--zones', default='configs/zones.json', help='Zone config')
-    parser.add_argument('--model', default='models/saved/activity_lstm_best.pth')
-    parser.add_argument('--no-sound', action='store_true', help='Disable alarm sound')
+def main():
+    parser = argparse.ArgumentParser(description='Child safety monitoring pipeline')
+    parser.add_argument('--source', type=str, default='0',
+                        help='Webcam index (0) or path to a video file')
+    parser.add_argument('--model', type=str,
+                        default='models/saved/child_cnn_lstm_best.pth')
+    parser.add_argument('--zones', type=str, default=None,
+                        help='Path to configs/zones.json (omit to disable zones)')
+    parser.add_argument('--threshold', type=float, default=ALERT_THRESHOLD,
+                        help='Minimum confidence before an alert fires')
+    parser.add_argument('--no-rules', action='store_true',
+                        help='Disable the geometric safety net')
+    parser.add_argument('--no-display', action='store_true')
+    parser.add_argument('--save', type=str, default=None,
+                        help='Write an annotated video to this path')
     args = parser.parse_args()
-    
-    camera = int(args.camera) if args.camera.isdigit() else args.camera
-    
-    pipeline = SafetyMonitoringPipeline(
-        camera_source=camera,
-        zone_config=args.zones if args.zones else None,
-        model_path=args.model,
-        enable_sound=not args.no_sound
-    )
-    
-    pipeline.run()
+
+    run(args.source, args.model, args.zones, args.threshold,
+        use_rules=not args.no_rules,
+        display=not args.no_display,
+        save_path=args.save)
+
+
+if __name__ == '__main__':
+    main()

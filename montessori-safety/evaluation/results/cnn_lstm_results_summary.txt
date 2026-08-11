@@ -1,0 +1,18 @@
+1D CNN-LSTM HYBRID — TRAINING RESULTS
+==================================================
+
+Architecture: Conv1d(51->64->128) -> LSTM(128->128, 2L) -> FC(128->64->3)
+Parameters: 307,587
+Window: 15 frames | Features: 51
+Classes: ['normal', 'fall', 'climb']
+Train: 7293 | Test: 6253
+Best epoch: 24 | Val accuracy: 0.8142
+
+  normal: P=0.982, R=0.823, F1=0.896, N=5995
+  fall: P=0.101, R=0.484, F1=0.167, N=64
+  climb: P=0.137, R=0.649, F1=0.226, N=194
+
+Confusion Matrix:
+[[4934  272  789]
+ [  25   31    8]
+ [  64    4  126]]

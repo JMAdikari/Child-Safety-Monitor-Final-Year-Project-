@@ -1,31 +1,64 @@
+# ============================================================
+# Phase 2 Requirements — Child Safety Monitoring System
+# Python 3.12 | Windows 11 | CPU Only
+# ============================================================
+
 # Core ML
-ultralytics==8.3.0          # YOLOv11
-mediapipe==0.10.14           # Pose estimation
-torch==2.2.0                 # PyTorch (for LSTM classifier)
+ultralytics==8.3.0          # YOLO11n person/child detection + ByteTrack
+torch==2.2.0                 # PyTorch (1D CNN-LSTM classifier)
 torchvision==0.17.0
 numpy==1.26.4
 scipy==1.12.0
 
+# Pose Estimation (Phase 2 — replaces MediaPipe)
+rtmlib                       # RTMPose lightweight inference (no heavy mmpose deps)
+onnxruntime                  # CPU inference backend for RTMPose ONNX models
+
 # Computer Vision
-opencv-python==4.9.0.80
-opencv-contrib-python==4.9.0.80
+# rtmlib requires opencv-contrib-python (needs cv2.dnn backend)
+# Do NOT add opencv-python — it conflicts with opencv-contrib-python
+opencv-contrib-python         # Includes full OpenCV + cv2.dnn needed by rtmlib
 
 # Data Processing
 pandas==2.2.0
-scikit-learn==1.4.0
-matplotlib==3.8.0
-seaborn==0.13.0
+scikit-learn==1.4.0          # Class weights, train/test split, metrics
+matplotlib==3.8.0            # Training curves, evaluation plots
+seaborn==0.13.0              # Confusion matrix heatmaps
 
-# Alert System
+# Multi-Agent Verification (Phase 2 — NEW)
+chromadb                     # RAG vector database (local, CPU-friendly)
+sentence-transformers        # Embedding model (all-MiniLM-L6-v2) for RAG
+requests                     # HTTP calls to Ollama API (localhost:11434)
+
+# Alert System & Dashboard
 flask==3.0.0                 # Dashboard web server
 flask-socketio==5.3.6        # Real-time WebSocket alerts
-twilio==9.0.0                # SMS alerts
-pygame==2.5.2                # Audible alarm (playsound incompatible with Python 3.12)
+twilio>=9.3.0                # SMS alerts (optional) — 9.0.0 was yanked
+# NOTE: winsound is built-in on Windows — no pip install needed for alarm sound
+# NOTE: pygame removed — winsound.Beep(1000, 500) replaces it for Windows alerts
 
 # Tracking
-lapx>=0.5.2                  # For ByteTrack (lap incompatible with Python 3.12)
+lapx>=0.5.2                  # ByteTrack dependency (lap incompatible with Python 3.12)
 
 # Utilities
-tqdm==4.66.0
-pyyaml==6.0.1
-Pillow==10.2.0
+tqdm==4.66.0                 # Progress bars for extraction
+pyyaml==6.0.1                # Config file parsing
+Pillow==10.2.0               # Image processing
+
+# ============================================================
+# REMOVED from Phase 1:
+#   mediapipe==0.10.14       — replaced by rtmlib (RTMPose)
+#   opencv-python            — replaced by opencv-contrib-python (rtmlib needs cv2.dnn)
+#   pygame==2.5.2            — replaced by built-in winsound on Windows
+#
+# ADDED for Phase 2:
+#   rtmlib                   — RTMPose pose estimation (90+ FPS on CPU)
+#   onnxruntime              — ONNX model inference for RTMPose
+#   chromadb                 — RAG knowledge base for LLM verification
+#   sentence-transformers    — Embeddings for RAG queries
+#   requests                 — Ollama API communication
+#
+# EXTERNAL (not pip — install separately):
+#   Ollama                   — Download from ollama.com/download
+#                              Then: ollama pull phi4-mini
+# ============================================================
