@@ -108,6 +108,15 @@ class AlertSystem:
         
         return True
     
+    # --- Phase A verification (NEXT_PHASE_PLAN §4-A) ---
+    def in_cooldown(self, person_id, activity_type):
+        """Query the cooldown without consuming it, so AlertVerifier can report it."""
+        alert_key = f"{person_id}_{activity_type}"
+        if alert_key not in self.last_alert_time:
+            return False
+        return (time.time() - self.last_alert_time[alert_key]) < self.cooldown_seconds
+    # --- end Phase A verification ---
+
     def _format_message(self, activity_type, person_id, confidence):
         """Create human-readable alert message."""
         messages = {
