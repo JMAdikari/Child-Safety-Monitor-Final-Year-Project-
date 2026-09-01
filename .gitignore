@@ -1,6 +1,8 @@
 # Claude Code local state
 .claude/
 
+#safty monitor terminal commands.txt
+
 # Video — every format, anywhere
 *.mp4
 *.MOV
