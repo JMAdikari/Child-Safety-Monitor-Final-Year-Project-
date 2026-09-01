@@ -4,6 +4,8 @@ data/test data
 data/id fails raw data
 data/processed
 models/saved/
+evaluation/inspection
+data/extra normal raw data not trained    
 __pycache__/
 *.pyc
 .DS_Store

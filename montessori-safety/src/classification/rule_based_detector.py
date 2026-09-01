@@ -15,6 +15,12 @@ BASELINE_FRAMES = 30
 
 MIN_VALID_KEYPOINTS = 6
 
+# --- Phase A verification (NEXT_PHASE_PLAN §4-A) ---
+# A body this upright cannot be mid-fall. Kept far from FALL_BODY_ANGLE so the
+# veto only catches clear contradictions.
+VETO_FALL_UPRIGHT_ANGLE = 30.0
+# --- end Phase A verification ---
+
 
 class RuleBasedDetector:
 
@@ -104,6 +110,34 @@ class RuleBasedDetector:
         if not results:
             return None
         return max(results, key=lambda r: r['confidence'])
+
+    # --- Phase A verification (NEXT_PHASE_PLAN §4-A) ---
+    def contradicts(self, track_id, predicted_class, activity_features):
+        """True only when the pose clearly rules out the prediction.
+
+        Deliberately loose — this rejects obvious contradictions, it does not
+        classify. Returns False whenever it cannot judge, so an incomplete
+        baseline never suppresses an alert.
+        """
+        if activity_features.get('valid_keypoints', 0) < MIN_VALID_KEYPOINTS:
+            return False
+
+        if predicted_class == 'fall':
+            return activity_features.get('body_angle', 90.0) < VETO_FALL_UPRIGHT_ANGLE
+
+        if predicted_class == 'climb':
+            ankles = self.ankle_history[track_id]
+            if len(ankles) < self.baseline_frames:
+                return False        # baseline still filling — cannot judge
+            current = activity_features.get('min_ankle_y', 0.0)
+            if current <= 0:
+                return False
+            ground_y = float(np.median(ankles))
+            # image y grows downward, so feet at or below ground have not risen
+            return current >= ground_y
+
+        return False
+    # --- end Phase A verification ---
 
     def baseline_progress(self, track_id):
         return len(self.ankle_history[track_id]), self.baseline_frames

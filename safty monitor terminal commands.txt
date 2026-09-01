@@ -21,9 +21,16 @@ python test\_setup.py
 python test\_detection.py
 
 
+********run inspection file*******save video to local
+python inspect_predictions.py --video "data/test data/ctest1.mp4"
 
 
+**********run dashboard*********
+ src/dashboard/app.py --source "data/test data/f69.mp4" 
 
+
+************main pipeline*********
+ python src/pipeline/main_pipeline.py --source "data/test data/ct1.mp4"
 
 
 

@@ -8,6 +8,7 @@ Usage:
 
 import os
 import sys
+import time
 import argparse
 
 import cv2
@@ -57,7 +58,13 @@ def match_pose_to_box(bbox, keypoints_all, scores_all):
 
 
 def run(source, model_path, zones_path, alert_threshold, use_rules,
-        display, save_path):
+        display, save_path,
+        # --- Phase A verification (NEXT_PHASE_PLAN §4-A) ---
+        use_verifier=True, consecutive=3, rules_mode='veto',
+        # --- end Phase A verification ---
+        # --- Dashboard hook ---
+        on_frame=None, enable_sound=True, stop_flag=None):
+        # --- end Dashboard hook ---
     detector = PersonDetector(confidence=0.5)
     pose = RTMPoseExtractor(device=onnx_device())
     classifier = ActivityClassifier(model_path=model_path)
@@ -71,7 +78,25 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
     elif zones_path:
         print(f"  [WARNING] Zone config not found: {zones_path} — zones disabled")
 
-    alerts = AlertSystem(cooldown_seconds=10, enable_sound=True)
+    alerts = AlertSystem(cooldown_seconds=10, enable_sound=enable_sound)
+
+    # --- Phase A verification (NEXT_PHASE_PLAN §4-A) ---
+    verifier = None
+    if use_verifier:
+        from src.verification.alert_verifier import AlertVerifier
+        # In 'detector' mode the rules produced the label, so vetoing with the
+        # same detector would only ever confirm its own output
+        veto_detector = rules if rules_mode in ('veto', 'both') else None
+        verifier = AlertVerifier(
+            threshold=alert_threshold,
+            consecutive_required=consecutive,
+            alert_system=alerts,
+            rule_detector=veto_detector,
+        )
+        print(f"  AlertVerifier: threshold {alert_threshold}, "
+              f"consecutive {consecutive}, rules={rules_mode}, "
+              f"geometry veto {'on' if veto_detector else 'off'}")
+    # --- end Phase A verification ---
 
     cap = cv2.VideoCapture(int(source) if str(source).isdigit() else source)
     if not cap.isOpened():
@@ -94,8 +119,15 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
         print("  'q' quits, space pauses\n")
 
     frame_idx = 0
+    started_at = time.time()
     try:
         while True:
+            # --- Dashboard hook ---
+            if stop_flag is not None and stop_flag.is_set():
+                print("\n  Stop requested")
+                break
+            # --- end Dashboard hook ---
+
             ret, frame = cap.read()
             if not ret:
                 break
@@ -130,20 +162,35 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
                         source_tag = 'model'
 
                     if rules is not None:
+                        # 'veto' mode still needs update() so each child's ankle
+                        # baseline keeps filling, even though nothing is promoted
                         rule_hit = rules.detect(tid, geom)
-                        # The rules exist to catch what the model misses, so
-                        # they only override a 'normal' verdict
-                        if rule_hit and label in ('normal', 'pending'):
-                            label = rule_hit['activity']
-                            conf = rule_hit['confidence']
-                            source_tag = 'rule'
+                        # --- Phase A verification (NEXT_PHASE_PLAN §4-A) ---
+                        # Promoting here makes the rules a detector; the verifier
+                        # then asks the same detector to validate its own output,
+                        # which is circular. A5 specifies veto only.
+                        if rules_mode in ('detector', 'both'):
+                            if rule_hit and label in ('normal', 'pending'):
+                                label = rule_hit['activity']
+                                conf = rule_hit['confidence']
+                                source_tag = 'rule'
+                        # --- end Phase A verification ---
 
-                if label in ('fall', 'climb') and conf >= alert_threshold:
+                # --- Phase A verification (NEXT_PHASE_PLAN §4-A) ---
+                if verifier is not None:
+                    fire = verifier.should_alert(tid, label, conf, geom)['alert']
+                else:
+                    fire = label in ('fall', 'climb') and conf >= alert_threshold
+                # --- end Phase A verification ---
+
+                if fire:
                     alerts.trigger_alert(
                         activity_type=label,
-                        confidence=conf,
-                        person_id=tid,
-                        location=((bbox[0] + bbox[2]) // 2, bbox[3]),
+                        confidence=float(conf),
+                        person_id=int(tid),
+                        # bbox comes from YOLO as numpy ints, which json.dump
+                        # refuses — this breaks both save_log() and the dashboard
+                        location=(int((bbox[0] + bbox[2]) // 2), int(bbox[3])),
                         frame=frame,
                     )
 
@@ -152,8 +199,8 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
                         alerts.trigger_alert(
                             activity_type=za['type'],
                             confidence=za['confidence'],
-                            person_id=tid,
-                            location=za['location'],
+                            person_id=int(tid),
+                            location=tuple(int(v) for v in za['location']),
                             frame=frame,
                         )
 
@@ -174,6 +221,10 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
             classifier.cleanup(active_ids)
             if rules is not None:
                 rules.cleanup(active_ids)
+            # --- Phase A verification (NEXT_PHASE_PLAN §4-A) ---
+            if verifier is not None:
+                verifier.cleanup(active_ids)
+            # --- end Phase A verification ---
             if zones is not None:
                 zones.cleanup(active_ids)
                 frame = zones.draw_zones(frame)
@@ -183,6 +234,19 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
 
             if writer is not None:
                 writer.write(frame)
+
+            # --- Dashboard hook ---
+            if on_frame is not None:
+                elapsed = time.time() - started_at
+                on_frame(frame, {
+                    'people': len(active_ids),
+                    'frames': frame_idx,
+                    'fps': round(frame_idx / elapsed, 1) if elapsed > 0 else 0.0,
+                    'uptime_sec': round(elapsed, 1),
+                    'alerts': list(alerts.alert_log),
+                    'verifier': verifier.stats() if verifier is not None else None,
+                })
+            # --- end Dashboard hook ---
 
             if display:
                 cv2.imshow('child safety monitor', frame)
@@ -205,6 +269,12 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
 
     print(f"\n  Frames processed: {frame_idx}")
     print(f"  Alerts raised: {len(alerts.alert_log)}")
+    if save_path:
+        print(f"  Annotated video: {save_path}")
+    # --- Phase A verification (NEXT_PHASE_PLAN §4-A) ---
+    if verifier is not None:
+        verifier.print_stats()
+    # --- end Phase A verification ---
     for a in alerts.get_recent_alerts(20):
         print(f"    {a['timestamp'][11:19]}  {a['message']}")
 
@@ -227,14 +297,48 @@ def main():
     parser.add_argument('--no-rules', action='store_true',
                         help='Disable the geometric safety net')
     parser.add_argument('--no-display', action='store_true')
+    # --- Dashboard hook ---
+    parser.add_argument('--no-sound', action='store_true',
+                        help='Silence the alarm — useful while the model is noisy')
+    # --- end Dashboard hook ---
     parser.add_argument('--save', type=str, default=None,
-                        help='Write an annotated video to this path')
+                        help='Output path (default: evaluation/pipeline/<name>_pipeline.mp4)')
+    parser.add_argument('--no-save', action='store_true',
+                        help='Do not write an annotated video')
+    # --- Phase A verification (NEXT_PHASE_PLAN §4-A) ---
+    parser.add_argument('--no-verifier', action='store_true',
+                        help='Bypass the Phase A rules and alert on threshold alone')
+    parser.add_argument('--consecutive', type=int, default=3,
+                        help='Predictions in a row required before alerting')
+    parser.add_argument('--rules-mode', choices=['veto', 'detector', 'both'],
+                        default='veto',
+                        help="veto: rules only reject implausible predictions (A5). "
+                             "detector: rules also raise their own detections. "
+                             "both: rules do each, which lets them validate themselves")
+    # --- end Phase A verification ---
     args = parser.parse_args()
+
+    save_path = args.save
+    if save_path is None and not args.no_save:
+        # A webcam has no filename to derive from, so timestamp it
+        if str(args.source).isdigit():
+            stem = 'webcam_' + time.strftime('%Y%m%d_%H%M%S')
+        else:
+            stem = os.path.splitext(os.path.basename(args.source))[0]
+        save_path = f"evaluation/pipeline/{stem}_pipeline.mp4"
 
     run(args.source, args.model, args.zones, args.threshold,
         use_rules=not args.no_rules,
         display=not args.no_display,
-        save_path=args.save)
+        save_path=save_path,
+        # --- Phase A verification (NEXT_PHASE_PLAN §4-A) ---
+        use_verifier=not args.no_verifier,
+        consecutive=args.consecutive,
+        rules_mode=args.rules_mode,
+        # --- end Phase A verification ---
+        # --- Dashboard hook ---
+        enable_sound=not args.no_sound)
+        # --- end Dashboard hook ---
 
 
 if __name__ == '__main__':
