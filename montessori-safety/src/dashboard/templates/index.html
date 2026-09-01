@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Child Safety Monitor</title>
+<style>
+  :root {
+    --bg: #14161a;
+    --panel: #1c1f25;
+    --line: #2a2f38;
+    --text: #e6e8eb;
+    --muted: #9aa3ad;
+    --fall: #ef4444;
+    --climb: #f59e0b;
+    --normal: #22c55e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px;
+    background: var(--bg); color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, Segoe UI, sans-serif;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  .layout { display: grid; grid-template-columns: minmax(0,2fr) minmax(300px,1fr); gap: 16px; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px;
+  }
+  .panel h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); margin: 0 0 10px; font-weight: 600;
+  }
+  #video { width: 100%; display: block; border-radius: 8px; background: #000; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat { background: #23272f; border-radius: 8px; padding: 10px 12px; }
+  .stat .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  .stat .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  td { padding: 5px 0; border-bottom: 1px solid var(--line); }
+  td.num { text-align: right; color: var(--muted); }
+  tr:last-child td { border-bottom: 0; }
+  .feed { max-height: 340px; overflow-y: auto; }
+  .alert {
+    border-left: 3px solid var(--line); padding: 7px 10px; margin-bottom: 6px;
+    background: #23272f; border-radius: 0 6px 6px 0;
+  }
+  .alert.fall { border-left-color: var(--fall); }
+  .alert.climb { border-left-color: var(--climb); }
+  .alert .top { display: flex; justify-content: space-between; gap: 10px; }
+  .alert .act { font-weight: 600; text-transform: capitalize; }
+  .alert .meta { color: var(--muted); font-size: 12px; }
+  .empty { color: var(--muted); font-style: italic; padding: 8px 0; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .dot.on { background: var(--normal); }
+  .dot.off { background: var(--muted); }
+  .dot.err { background: var(--fall); }
+  .note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<h1>Child Safety Monitor</h1>
+<div class="sub"><span id="status"><span class="dot off"></span>connecting…</span></div>
+
+<div class="layout">
+  <div>
+    <div class="panel">
+      <h2>Live</h2>
+      <img id="video" src="/video_feed" alt="live view">
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h2>Session</h2>
+      <div class="grid">
+        <div class="stat"><div class="k">People tracked</div><div class="v" id="people">0</div></div>
+        <div class="stat"><div class="k">Frames</div><div class="v" id="frames">0</div></div>
+        <div class="stat"><div class="k">FPS</div><div class="v" id="fps">0</div></div>
+        <div class="stat"><div class="k">Uptime</div><div class="v" id="uptime">0s</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>Verification rules</h2>
+      <table>
+        <tr><td>Predictions seen</td><td class="num" id="v-candidates">0</td></tr>
+        <tr><td>Alerts passed</td><td class="num" id="v-alerts">0</td></tr>
+      </table>
+      <h2 style="margin-top:14px">Rejected by</h2>
+      <table id="v-rejected"><tr><td class="empty">nothing yet</td></tr></table>
+      <div class="note">“not_dangerous” counts normal frames and buffer warm-up, not rule rejections.</div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h2>Alerts <span id="alert-count" class="meta"></span></h2>
+      <div class="feed" id="feed"><div class="empty">no alerts yet</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+function fmtTime(iso) {
+  return iso && iso.length >= 19 ? iso.slice(11, 19) : '';
+}
+
+function fmtUptime(s) {
+  s = Math.round(s);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  return m + 'm ' + (s % 60) + 's';
+}
+
+function renderStatus(d) {
+  const el = $('status');
+  if (d.error)        el.innerHTML = '<span class="dot err"></span>stopped — ' + d.error;
+  else if (d.running) el.innerHTML = '<span class="dot on"></span>running';
+  else if (d.finished)el.innerHTML = '<span class="dot off"></span>finished';
+  else                el.innerHTML = '<span class="dot off"></span>starting…';
+}
+
+function renderVerifier(v) {
+  if (!v) {
+    $('v-candidates').textContent = '—';
+    $('v-alerts').textContent = '—';
+    $('v-rejected').innerHTML = '<tr><td class="empty">verifier disabled</td></tr>';
+    return;
+  }
+  $('v-candidates').textContent = v.candidates ?? 0;
+  $('v-alerts').textContent = v.alerts ?? 0;
+
+  const rows = Object.entries(v.rejected || {}).sort((a, b) => b[1] - a[1]);
+  $('v-rejected').innerHTML = rows.length
+    ? rows.map(([k, n]) => `<tr><td>${k}</td><td class="num">${n}</td></tr>`).join('')
+    : '<tr><td class="empty">nothing yet</td></tr>';
+}
+
+function renderAlerts(alerts) {
+  $('alert-count').textContent = alerts.length ? `(${alerts.length})` : '';
+  $('feed').innerHTML = alerts.length
+    ? alerts.map(a => `
+        <div class="alert ${a.activity}">
+          <div class="top">
+            <span class="act">${a.activity}</span>
+            <span class="meta">${fmtTime(a.timestamp)}</span>
+          </div>
+          <div class="meta">child #${a.person_id} · ${Math.round(a.confidence * 100)}%</div>
+        </div>`).join('')
+    : '<div class="empty">no alerts yet</div>';
+}
+
+async function tick() {
+  try {
+    const d = await (await fetch('/api/state')).json();
+    renderStatus(d);
+    $('people').textContent = d.people ?? 0;
+    $('frames').textContent = d.frames ?? 0;
+    $('fps').textContent = d.fps ?? 0;
+    $('uptime').textContent = fmtUptime(d.uptime_sec || 0);
+    renderVerifier(d.verifier);
+    renderAlerts(d.alerts || []);
+  } catch (e) {
+    $('status').innerHTML = '<span class="dot err"></span>server unreachable';
+  }
+}
+
+tick();
+setInterval(tick, 1000);
+</script>
+
+</body>
+</html>
