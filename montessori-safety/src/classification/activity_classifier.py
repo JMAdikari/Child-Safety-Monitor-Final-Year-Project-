@@ -36,7 +36,10 @@ class ActivityClassifier:
                 f"Model expects window_size={saved_window} but {window_size} requested"
             )
 
-        self.model = CNNLSTMClassifier().to(self.device)
+        # Read from the checkpoint rather than the module default, so a model
+        # trained on a different feature count still loads
+        self.input_size = checkpoint.get('input_size', 51)
+        self.model = CNNLSTMClassifier(input_size=self.input_size).to(self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.eval()
 
