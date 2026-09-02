@@ -243,6 +243,10 @@ def extract_sequences_from_video(video_path, annotations, output_dir):
 
     fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    # Saved with the sequences so normalisation can express position and size
+    # as a fraction of the frame; the .npy files alone do not carry this
+    frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     video_name = Path(video_path).stem
 
     print(f"[INFO] Video: {video_name}, FPS: {fps:.1f}, Frames: {total_frames}")
@@ -488,6 +492,8 @@ def extract_sequences_from_video(video_path, annotations, output_dir):
         
         np.save(seq_path, sequences_array)
         np.save(lbl_path, labels_array)
+        np.save(os.path.join(output_dir, f"{video_name}_{split_name}_dims.npy"),
+                np.array([frame_w, frame_h], dtype=np.int32))
         print(f"\n  Saved: {seq_path} — shape {sequences_array.shape}")
         print(f"  Saved: {lbl_path} — shape {labels_array.shape}")
 
@@ -502,24 +508,39 @@ def merge_all_sequences(output_dir):
     for split in ['train', 'test']:
         all_seqs = []
         all_labels = []
-        
+        all_videos = []
+        all_dims = []
+
         for f in sorted(os.listdir(output_dir)):
-            if f.endswith(f'_{split}_sequences.npy'):
+            if f.endswith(f'_{split}_sequences.npy') and not f.startswith('all_'):
                 seqs = np.load(os.path.join(output_dir, f))
                 video_name = f.replace(f'_{split}_sequences.npy', '')
                 labels_file = f"{video_name}_{split}_labels.npy"
                 labels = np.load(os.path.join(output_dir, labels_file))
-                
+
                 all_seqs.append(seqs)
                 all_labels.append(labels)
+                # Recorded so the validation split can be grouped by video —
+                # splitting randomly would put overlapping windows from one
+                # video on both sides
+                all_videos.append(np.full(seqs.shape[0], video_name, dtype=object))
+
+                dims_file = os.path.join(output_dir, f"{video_name}_{split}_dims.npy")
+                dims = (np.load(dims_file) if os.path.exists(dims_file)
+                        else np.array([0, 0], dtype=np.int32))
+                all_dims.append(np.tile(dims, (seqs.shape[0], 1)))
                 print(f"  Loaded {f}: {seqs.shape[0]} sequences")
-        
+
         if all_seqs:
             merged_seqs = np.concatenate(all_seqs, axis=0)
             merged_labels = np.concatenate(all_labels, axis=0)
-            
+            merged_videos = np.concatenate(all_videos, axis=0)
+            merged_dims = np.concatenate(all_dims, axis=0)
+
             np.save(os.path.join(output_dir, f'all_{split}_sequences.npy'), merged_seqs)
             np.save(os.path.join(output_dir, f'all_{split}_labels.npy'), merged_labels)
+            np.save(os.path.join(output_dir, f'all_{split}_videos.npy'), merged_videos)
+            np.save(os.path.join(output_dir, f'all_{split}_dims.npy'), merged_dims)
             
             print(f"\n  === {split.upper()} SET ===")
             print(f"  Total sequences: {merged_seqs.shape[0]}")
@@ -561,11 +582,17 @@ def main():
     if args.video:
         # Process single video
         # Key must match the video_file column in the CSV (relative to VIDEO_DIR)
-        video_key = Path(args.video).as_posix().replace(VIDEO_DIR + '/', '').replace(VIDEO_DIR + '\\', '')
+        # relpath strips only the leading VIDEO_DIR. A plain replace() would also
+        # remove the "data/" inside "raw data/", producing a key that matches nothing
+        try:
+            video_key = Path(os.path.relpath(args.video, VIDEO_DIR)).as_posix()
+        except ValueError:
+            video_key = Path(args.video).as_posix()
+
         video_annotations = annotations.get(video_key, [])
         if not video_annotations:
             print(f"[WARNING] No annotations found for {video_key} in ground_truth.csv")
-            print(f"  All frames will be labeled as 'normal'")
+            print(f"  All frames will be labeled 'normal' and saved to the TRAIN split")
             video_annotations = []
         
         extract_sequences_from_video(args.video, video_annotations, args.output)
