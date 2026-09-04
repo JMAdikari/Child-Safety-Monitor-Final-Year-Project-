@@ -10,13 +10,21 @@ import json
 from datetime import datetime
 
 
+# The same alarm for every activity — one recognisable sound, sustained long
+# enough to be noticed across a room. Total length is roughly 3.3 seconds.
+ALARM_TONE_HZ = 1000
+ALARM_BEEP_MS = 400
+ALARM_GAP_MS = 150
+ALARM_REPEATS = 6
+
+
 class AlertSystem:
     """
     Manages alert generation, cooldown, and multi-channel delivery.
     """
     
-    def __init__(self, cooldown_seconds=7, enable_sound=True,
-                 enable_sms=False, twilio_config=None, spatial_radius=150):
+    def __init__(self, cooldown_seconds=4, enable_sound=True,
+                 enable_sms=False, twilio_config=None, spatial_radius=0):
         """
         Args:
             cooldown_seconds: Minimum time between alerts for the same person+activity
@@ -33,11 +41,15 @@ class AlertSystem:
         # Track last alert time per person+activity to prevent spam
         self.last_alert_time = {}  # Key: "track_id_activity" -> timestamp
 
-        # ByteTrack renumbers a child after occlusion or fast motion — which is
-        # exactly what a fall looks like — so a track-keyed cooldown resets
-        # mid-event and the same fall alarms repeatedly. A second cooldown keyed
-        # on where the alert happened survives renumbering, since the child is
-        # still in roughly the same place.
+        # A second cooldown keyed on where the alert happened, which survives
+        # ByteTrack renumbering a child mid-event.
+        #
+        # Off by default (radius 0). It was built to stop one fall alarming
+        # twice under two track numbers, but testing showed that suppression
+        # working against the more important case: a child who falls, is
+        # renumbered, and is still on the floor needs the second alarm, not
+        # silence. Kept switchable rather than deleted so the effect can still
+        # be measured.
         self.last_alert_place = []      # (x, y, activity, timestamp)
         self.spatial_radius = spatial_radius
         
@@ -171,9 +183,15 @@ class AlertSystem:
         return messages.get(activity_type, f"Unknown activity: {activity_type}")
     
     def _play_alarm(self):
+        # A single 500ms beep was easy to miss, and one incident may raise only
+        # one alert, so the tone repeats for a few seconds instead. Runs in a
+        # daemon thread, so the pipeline is not held up by it.
         try:
             import winsound
-            winsound.Beep(1000, 500)
+            for i in range(ALARM_REPEATS):
+                winsound.Beep(ALARM_TONE_HZ, ALARM_BEEP_MS)
+                if i < ALARM_REPEATS - 1:
+                    time.sleep(ALARM_GAP_MS / 1000)
         except Exception:
             pass
     
