@@ -15,88 +15,115 @@
     --normal: #22c55e;
   }
   * { box-sizing: border-box; }
+
+  /* The whole page is one screen — only the two side panels scroll inside
+     themselves, so the video never leaves the viewport */
+  html, body { height: 100%; }
   body {
-    margin: 0; padding: 20px;
+    margin: 0; padding: 12px 16px; overflow: hidden;
+    display: flex; flex-direction: column; gap: 10px;
     background: var(--bg); color: var(--text);
-    font: 14px/1.5 system-ui, -apple-system, Segoe UI, sans-serif;
+    font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif;
   }
-  h1 { font-size: 18px; margin: 0 0 4px; font-weight: 600; }
-  .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
-  .layout { display: grid; grid-template-columns: minmax(0,2fr) minmax(300px,1fr); gap: 16px; }
-  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  h1 { font-size: 16px; margin: 0; font-weight: 600; white-space: nowrap; }
+  .chips { display: flex; gap: 14px; flex-wrap: wrap; margin-left: auto; }
+  .chip { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .chip b {
+    color: var(--text); font-weight: 600; font-size: 14px;
+    font-variant-numeric: tabular-nums; margin-left: 4px;
+  }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .dot.on { background: var(--normal); }
+  .dot.off { background: var(--muted); }
+  .dot.err { background: var(--fall); }
+  #status { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+  /* min-height:0 on every flex/grid child, or the panels refuse to shrink
+     and push the page into a scrollbar */
+  .layout {
+    flex: 1; min-height: 0;
+    display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px;
+  }
+  .side { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+
   .panel {
     background: var(--panel); border: 1px solid var(--line);
-    border-radius: 10px; padding: 14px;
+    border-radius: 10px; padding: 10px 12px;
+    display: flex; flex-direction: column; min-height: 0;
   }
-  .panel h2 {
-    font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
-    color: var(--muted); margin: 0 0 10px; font-weight: 600;
+  .panel > h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); margin: 0 0 8px; font-weight: 600; flex: none;
   }
-  #video { width: 100%; display: block; border-radius: 8px; background: #000; }
-  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-  .stat { background: #23272f; border-radius: 8px; padding: 10px 12px; }
-  .stat .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
-  .stat .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-  td { padding: 5px 0; border-bottom: 1px solid var(--line); }
-  td.num { text-align: right; color: var(--muted); }
-  tr:last-child td { border-bottom: 0; }
-  .feed { max-height: 340px; overflow-y: auto; }
+  .scroll { overflow-y: auto; min-height: 0; flex: 1; }
+
+  #video {
+    flex: 1; min-height: 0; width: 100%;
+    object-fit: contain; border-radius: 8px; background: #000;
+  }
+
+  .empty { color: var(--muted); font-style: italic; padding: 6px 0; font-size: 13px; }
+
+  /* One child per row: id, what the model says, and which rule is gating it */
+  .trk { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .trk:last-child { border-bottom: 0; }
+  .trk .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .trk .id { font-weight: 600; }
+  .trk .why { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .trk .why.fire { color: var(--fall); font-weight: 600; }
+  .trk .why b { color: var(--text); font-weight: 600; }
+  .bar { height: 4px; background: #2a2f38; border-radius: 3px; margin-top: 5px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--climb); }
+
+  .pill {
+    font-size: 11px; padding: 1px 8px; border-radius: 999px;
+    background: #2a2f38; color: var(--muted); white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .pill.fall { background: #3a2020; color: #fca5a5; }
+  .pill.climb { background: #3a2f1a; color: #fcd34d; }
+
   .alert {
-    border-left: 3px solid var(--line); padding: 7px 10px; margin-bottom: 6px;
+    border-left: 3px solid var(--line); padding: 6px 9px; margin-bottom: 5px;
     background: #23272f; border-radius: 0 6px 6px 0;
   }
   .alert.fall { border-left-color: var(--fall); }
   .alert.climb { border-left-color: var(--climb); }
   .alert .top { display: flex; justify-content: space-between; gap: 10px; }
-  .alert .act { font-weight: 600; text-transform: capitalize; }
-  .alert .meta { color: var(--muted); font-size: 12px; }
-  .empty { color: var(--muted); font-style: italic; padding: 8px 0; }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-  .dot.on { background: var(--normal); }
-  .dot.off { background: var(--muted); }
-  .dot.err { background: var(--fall); }
-  .note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+  .alert .act { font-weight: 600; text-transform: capitalize; font-size: 13px; }
+  .alert .meta { color: var(--muted); font-size: 11px; }
+  .count { color: var(--muted); font-size: 11px; font-weight: 400; }
 </style>
 </head>
 <body>
 
-<h1>Child Safety Monitor</h1>
-<div class="sub"><span id="status"><span class="dot off"></span>connecting…</span></div>
+<header>
+  <h1>Child Safety Monitor</h1>
+  <span id="status"><span class="dot off"></span>connecting…</span>
+  <div class="chips">
+    <span class="chip">People<b id="people">0</b></span>
+    <span class="chip">Frames<b id="frames">0</b></span>
+    <span class="chip" title="Frames analysed per second — not the speed of the footage">Processing FPS<b id="fps">0</b></span>
+    <span class="chip" title="Position within the clip. This is what the rules measure against.">Video time<b id="vtime">0s</b></span>
+  </div>
+</header>
 
 <div class="layout">
-  <div>
-    <div class="panel">
-      <h2>Live</h2>
-      <img id="video" src="/video_feed" alt="live view">
-    </div>
-
-    <div class="panel" style="margin-top:16px">
-      <h2>Session</h2>
-      <div class="grid">
-        <div class="stat"><div class="k">People tracked</div><div class="v" id="people">0</div></div>
-        <div class="stat"><div class="k">Frames</div><div class="v" id="frames">0</div></div>
-        <div class="stat"><div class="k">FPS</div><div class="v" id="fps">0</div></div>
-        <div class="stat"><div class="k">Uptime</div><div class="v" id="uptime">0s</div></div>
-      </div>
-    </div>
+  <div class="panel">
+    <img id="video" src="/video_feed" alt="live view">
   </div>
 
-  <div>
-    <div class="panel">
-      <h2>Verification rules</h2>
-      <table>
-        <tr><td>Predictions seen</td><td class="num" id="v-candidates">0</td></tr>
-        <tr><td>Alerts passed</td><td class="num" id="v-alerts">0</td></tr>
-      </table>
-      <h2 style="margin-top:14px">Rejected by</h2>
-      <table id="v-rejected"><tr><td class="empty">nothing yet</td></tr></table>
-      <div class="note">“not_dangerous” counts normal frames and buffer warm-up, not rule rejections.</div>
+  <div class="side">
+    <div class="panel" style="flex: 1 1 45%">
+      <h2>Children in view <span class="count" id="track-count"></span></h2>
+      <div class="scroll" id="tracks"><div class="empty">nobody detected yet</div></div>
     </div>
 
-    <div class="panel" style="margin-top:16px">
-      <h2>Alerts <span id="alert-count" class="meta"></span></h2>
-      <div class="feed" id="feed"><div class="empty">no alerts yet</div></div>
+    <div class="panel" style="flex: 1 1 55%">
+      <h2>Alerts <span class="count" id="alert-count"></span></h2>
+      <div class="scroll" id="feed"><div class="empty">no alerts yet</div></div>
     </div>
   </div>
 </div>
@@ -108,39 +135,94 @@ function fmtTime(iso) {
   return iso && iso.length >= 19 ? iso.slice(11, 19) : '';
 }
 
-function fmtUptime(s) {
+function fmtSecs(s) {
   s = Math.round(s);
   if (s < 60) return s + 's';
-  const m = Math.floor(s / 60);
-  return m + 'm ' + (s % 60) + 's';
+  return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
 }
 
 function renderStatus(d) {
   const el = $('status');
-  if (d.error)        el.innerHTML = '<span class="dot err"></span>stopped — ' + d.error;
-  else if (d.running) el.innerHTML = '<span class="dot on"></span>running';
-  else if (d.finished)el.innerHTML = '<span class="dot off"></span>finished';
-  else                el.innerHTML = '<span class="dot off"></span>starting…';
+  if (d.error)         el.innerHTML = '<span class="dot err"></span>stopped — ' + d.error;
+  else if (d.running)  el.innerHTML = '<span class="dot on"></span>running';
+  else if (d.finished) el.innerHTML = '<span class="dot off"></span>finished';
+  else                 el.innerHTML = '<span class="dot off"></span>starting…';
 }
 
-function renderVerifier(v) {
-  if (!v) {
-    $('v-candidates').textContent = '—';
-    $('v-alerts').textContent = '—';
-    $('v-rejected').innerHTML = '<tr><td class="empty">verifier disabled</td></tr>';
+// A setting may be per class or a single number covering both
+function forClass(setting, cls) {
+  if (setting === null || setting === undefined) return null;
+  return typeof setting === 'object' ? setting[cls] : setting;
+}
+
+// Which deterministic rule is holding this child back, in its own terms.
+// Reads the live config so a run with different flags describes itself.
+function ruleDetail(t, rules) {
+  const cls = t.activity;
+  const p = t.progress;
+
+  if (t.alert) return {text: 'ALERT — passed every rule', fire: true};
+
+  if (cls === 'pending') return {text: 'collecting frames before the model can predict'};
+  if (cls === 'normal')  return {text: 'normal posture'};
+
+  switch (t.rejected_by) {
+    case 'threshold': {
+      const need = rules ? forClass(rules.threshold?.value, cls) : null;
+      return {text: need != null
+        ? `<b>Confidence</b> ${(t.confidence * 100).toFixed(0)}% — needs ${(need * 100).toFixed(0)}%`
+        : '<b>Confidence</b> below the threshold'};
+    }
+    case 'duration': {
+      if (!p) return {text: '<b>Duration</b> — not long enough yet'};
+      const frac = p.need_frames ? Math.min(1, p.frames / p.need_frames) : 1;
+      return {
+        text: `<b>Duration</b> ${p.frames}/${p.need_frames} frames · `
+            + `${p.seconds.toFixed(1)}/${p.need_seconds}s`,
+        bar: frac,
+      };
+    }
+    case 'geometry': {
+      const g = rules?.geometry || {};
+      return {text: cls === 'fall'
+        ? `<b>Pose veto</b> — never tilted past ${g.fall_peak_angle ?? 8}°, so not a fall`
+        : `<b>Pose veto</b> — hips under ${g.climb_hip_above_feet ?? 0.3} torso lengths above the feet, so not a climb`};
+    }
+    case 'cooldown': {
+      const secs = rules?.cooldown?.seconds;
+      return {text: `<b>Cooldown</b> — already alerted${secs ? ', ' + secs + 's gap required' : ''}`};
+    }
+    default:
+      return {text: 'waiting'};
+  }
+}
+
+function renderTracks(tracks, rules) {
+  $('track-count').textContent = tracks.length ? `(${tracks.length})` : '';
+  if (!tracks.length) {
+    $('tracks').innerHTML = '<div class="empty">nobody detected yet</div>';
     return;
   }
-  $('v-candidates').textContent = v.candidates ?? 0;
-  $('v-alerts').textContent = v.alerts ?? 0;
+  $('tracks').innerHTML = tracks.map(t => {
+    const dangerous = t.activity === 'fall' || t.activity === 'climb';
+    const pct = t.activity === 'pending' ? '' : Math.round(t.confidence * 100) + '%';
+    const r = ruleDetail(t, rules);
+    const bar = r.bar !== undefined
+      ? `<div class="bar"><i style="width:${(r.bar * 100).toFixed(0)}%"></i></div>` : '';
 
-  const rows = Object.entries(v.rejected || {}).sort((a, b) => b[1] - a[1]);
-  $('v-rejected').innerHTML = rows.length
-    ? rows.map(([k, n]) => `<tr><td>${k}</td><td class="num">${n}</td></tr>`).join('')
-    : '<tr><td class="empty">nothing yet</td></tr>';
+    return `<div class="trk">
+      <div class="top">
+        <span class="id">child #${t.track_id}</span>
+        <span class="pill ${dangerous ? t.activity : ''}">${t.activity} ${pct}</span>
+      </div>
+      <div class="why ${r.fire ? 'fire' : ''}">${r.text}</div>${bar}
+    </div>`;
+  }).join('');
 }
 
-function renderAlerts(alerts) {
-  $('alert-count').textContent = alerts.length ? `(${alerts.length})` : '';
+function renderAlerts(alerts, total) {
+  const n = total ?? alerts.length;
+  $('alert-count').textContent = n ? `(${n})` : '';
   $('feed').innerHTML = alerts.length
     ? alerts.map(a => `
         <div class="alert ${a.activity}">
@@ -148,7 +230,7 @@ function renderAlerts(alerts) {
             <span class="act">${a.activity}</span>
             <span class="meta">${fmtTime(a.timestamp)}</span>
           </div>
-          <div class="meta">child #${a.person_id} · ${Math.round(a.confidence * 100)}%</div>
+          <div class="meta">child #${a.person_id} · model confidence ${Math.round(a.confidence * 100)}%</div>
         </div>`).join('')
     : '<div class="empty">no alerts yet</div>';
 }
@@ -160,9 +242,9 @@ async function tick() {
     $('people').textContent = d.people ?? 0;
     $('frames').textContent = d.frames ?? 0;
     $('fps').textContent = d.fps ?? 0;
-    $('uptime').textContent = fmtUptime(d.uptime_sec || 0);
-    renderVerifier(d.verifier);
-    renderAlerts(d.alerts || []);
+    $('vtime').textContent = fmtSecs(d.video_time_sec ?? d.uptime_sec ?? 0);
+    renderTracks(d.tracks || [], d.rules);
+    renderAlerts(d.alerts || [], d.alert_total);
   } catch (e) {
     $('status').innerHTML = '<span class="dot err"></span>server unreachable';
   }
