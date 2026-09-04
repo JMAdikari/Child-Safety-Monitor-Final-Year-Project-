@@ -10,11 +10,19 @@
     --line: #2a2f38;
     --text: #e6e8eb;
     --muted: #9aa3ad;
-    --fall: #ef4444;
+    /* Class colours match the on-frame overlay: fall blue, climb amber,
+       normal green. Red is kept for a fired alert alone, so it never doubles
+       as a class colour. */
+    --fall: #3b82f6;
     --climb: #f59e0b;
     --normal: #22c55e;
+    --danger: #ef4444;
   }
   * { box-sizing: border-box; }
+
+  /* Tells the browser to render native controls dark; without it the scrollbar
+     comes through in the default bright white and dominates the panel. */
+  :root { color-scheme: dark; }
 
   /* The whole page is one screen — only the two side panels scroll inside
      themselves, so the video never leaves the viewport */
@@ -37,8 +45,9 @@
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
   .dot.on { background: var(--normal); }
   .dot.off { background: var(--muted); }
-  .dot.err { background: var(--fall); }
+  .dot.err { background: var(--danger); }
   #status { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  #status b { color: var(--text); font-weight: 600; letter-spacing: .03em; }
 
   /* min-height:0 on every flex/grid child, or the panels refuse to shrink
      and push the page into a scrollbar */
@@ -57,7 +66,24 @@
     font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
     color: var(--muted); margin: 0 0 8px; font-weight: 600; flex: none;
   }
-  .scroll { overflow-y: auto; min-height: 0; flex: 1; }
+  /* Children takes whatever is left; alerts sizes itself to its contents and
+     only grows to the cap, so a quiet session does not leave a tall empty box
+     while the children list is cut off above it. */
+  .panel.grow { flex: 1 1 auto; }
+  .panel.cap  { flex: 0 1 auto; max-height: 38%; }
+
+  .scroll {
+    overflow-y: auto; min-height: 0; flex: 1;
+    scrollbar-width: thin;                       /* Firefox */
+    scrollbar-color: #39404d transparent;
+  }
+  /* Chrome and Edge ignore the two properties above, so restate it */
+  .scroll::-webkit-scrollbar { width: 8px; }
+  .scroll::-webkit-scrollbar-track { background: transparent; }
+  .scroll::-webkit-scrollbar-thumb {
+    background: #39404d; border-radius: 4px;
+  }
+  .scroll::-webkit-scrollbar-thumb:hover { background: #4a5361; }
 
   #video {
     flex: 1; min-height: 0; width: 100%;
@@ -72,18 +98,26 @@
   .trk .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
   .trk .id { font-weight: 600; }
   .trk .why { color: var(--muted); font-size: 12px; margin-top: 4px; }
-  .trk .why.fire { color: var(--fall); font-weight: 600; }
+  .trk .why.fire { color: var(--danger); font-weight: 600; }
   .trk .why b { color: var(--text); font-weight: 600; }
-  .bar { height: 4px; background: #2a2f38; border-radius: 3px; margin-top: 5px; overflow: hidden; }
-  .bar > i { display: block; height: 100%; background: var(--climb); }
+  /* Name of the rule doing the blocking, so the plain-English line that follows
+     can still be traced back to a specific rule in the system */
+  .trk .rule {
+    display: inline-block; font-size: 10px; text-transform: uppercase;
+    letter-spacing: .05em; font-weight: 600; color: var(--muted);
+    background: #2a2f38; border-radius: 4px; padding: 1px 6px; margin-top: 5px;
+  }
 
+  /* Tinted to its class, so the activity reads at a glance without needing the
+     word. Grey is left for 'detecting', where there is no class yet. */
   .pill {
     font-size: 11px; padding: 1px 8px; border-radius: 999px;
     background: #2a2f38; color: var(--muted); white-space: nowrap;
     font-variant-numeric: tabular-nums;
   }
-  .pill.fall { background: #3a2020; color: #fca5a5; }
-  .pill.climb { background: #3a2f1a; color: #fcd34d; }
+  .pill.fall   { background: #16294a; color: #93c5fd; }
+  .pill.climb  { background: #3a2f1a; color: #fcd34d; }
+  .pill.normal { background: #14372a; color: #86efac; }
 
   .alert {
     border-left: 3px solid var(--line); padding: 6px 9px; margin-bottom: 5px;
@@ -116,12 +150,12 @@
   </div>
 
   <div class="side">
-    <div class="panel" style="flex: 1 1 45%">
+    <div class="panel grow">
       <h2>Children in view <span class="count" id="track-count"></span></h2>
       <div class="scroll" id="tracks"><div class="empty">nobody detected yet</div></div>
     </div>
 
-    <div class="panel" style="flex: 1 1 55%">
+    <div class="panel cap">
       <h2>Alerts <span class="count" id="alert-count"></span></h2>
       <div class="scroll" id="feed"><div class="empty">no alerts yet</div></div>
     </div>
@@ -143,10 +177,18 @@ function fmtSecs(s) {
 
 function renderStatus(d) {
   const el = $('status');
-  if (d.error)         el.innerHTML = '<span class="dot err"></span>stopped — ' + d.error;
-  else if (d.running)  el.innerHTML = '<span class="dot on"></span>running';
-  else if (d.finished) el.innerHTML = '<span class="dot off"></span>finished';
-  else                 el.innerHTML = '<span class="dot off"></span>starting…';
+  if (d.error) {
+    el.innerHTML = '<span class="dot err"></span>stopped — ' + d.error;
+  } else if (d.running) {
+    el.innerHTML = '<span class="dot on"></span>running';
+  } else if (d.finished) {
+    // The video panel goes black at the end, so the summary is reported here
+    const n = d.alert_total ?? 0;
+    el.innerHTML = '<span class="dot off"></span><b>VIDEO ENDED</b> — '
+      + `${d.frames ?? 0} frames analysed, ${n} alert${n === 1 ? '' : 's'} raised`;
+  } else {
+    el.innerHTML = '<span class="dot off"></span>starting…';
+  }
 }
 
 // A setting may be per class or a single number covering both
@@ -155,45 +197,48 @@ function forClass(setting, cls) {
   return typeof setting === 'object' ? setting[cls] : setting;
 }
 
-// Which deterministic rule is holding this child back, in its own terms.
-// Reads the live config so a run with different flags describes itself.
+// Which deterministic rule is holding this child back, said in plain words so
+// a viewer who does not know the system can still follow it. Reads the live
+// config, so a run started with different flags describes itself honestly.
 function ruleDetail(t, rules) {
   const cls = t.activity;
   const p = t.progress;
 
-  if (t.alert) return {text: 'ALERT — passed every rule', fire: true};
+  if (t.alert) return {text: 'ALERT — every rule passed', fire: true};
 
-  if (cls === 'pending') return {text: 'collecting frames before the model can predict'};
-  if (cls === 'normal')  return {text: 'normal posture'};
+  if (cls === 'pending')
+    return {text: 'Just appeared — collecting frames before the model can judge'};
+  if (cls === 'normal')
+    return {text: 'Standing or moving normally'};
 
   switch (t.rejected_by) {
     case 'threshold': {
       const need = rules ? forClass(rules.threshold?.value, cls) : null;
-      return {text: need != null
-        ? `<b>Confidence</b> ${(t.confidence * 100).toFixed(0)}% — needs ${(need * 100).toFixed(0)}%`
-        : '<b>Confidence</b> below the threshold'};
+      const have = (t.confidence * 100).toFixed(0);
+      return {rule: 'Confidence', text: need != null
+        ? `Only ${have}% sure this is ${cls} — needs ${(need * 100).toFixed(0)}% to raise an alert`
+        : `Only ${have}% sure this is ${cls} — below the required level`};
     }
     case 'duration': {
-      if (!p) return {text: '<b>Duration</b> — not long enough yet'};
-      const frac = p.need_frames ? Math.min(1, p.frames / p.need_frames) : 1;
-      return {
-        text: `<b>Duration</b> ${p.frames}/${p.need_frames} frames · `
-            + `${p.seconds.toFixed(1)}/${p.need_seconds}s`,
-        bar: frac,
-      };
+      if (!p) return {rule: 'Duration', text: 'Has not gone on long enough yet'};
+      const left = Math.max(0, p.need_seconds - p.seconds);
+      return {rule: 'Duration',
+        text: `Seen ${cls} for ${p.seconds.toFixed(1)}s so far — must continue for `
+            + `${p.need_seconds}s (about ${left.toFixed(1)}s to go), `
+            + `and for ${p.need_frames} frames (${p.frames} so far)`};
     }
     case 'geometry': {
-      const g = rules?.geometry || {};
-      return {text: cls === 'fall'
-        ? `<b>Pose veto</b> — never tilted past ${g.fall_peak_angle ?? 8}°, so not a fall`
-        : `<b>Pose veto</b> — hips under ${g.climb_hip_above_feet ?? 0.3} torso lengths above the feet, so not a climb`};
+      return {rule: 'Body position', text: cls === 'fall'
+        ? 'The body never tilted over, so this cannot be a fall'
+        : 'The hips are not raised above the feet, so this cannot be a climb'};
     }
     case 'cooldown': {
       const secs = rules?.cooldown?.seconds;
-      return {text: `<b>Cooldown</b> — already alerted${secs ? ', ' + secs + 's gap required' : ''}`};
+      return {rule: 'Cooldown',
+        text: `Already alerted for this child${secs ? ` — waiting ${secs}s before alerting again` : ''}`};
     }
     default:
-      return {text: 'waiting'};
+      return {text: 'Waiting'};
   }
 }
 
@@ -204,18 +249,19 @@ function renderTracks(tracks, rules) {
     return;
   }
   $('tracks').innerHTML = tracks.map(t => {
-    const dangerous = t.activity === 'fall' || t.activity === 'climb';
+    // 'pending' has no class yet, so it keeps the neutral grey pill
+    const cls = t.activity === 'pending' ? '' : t.activity;
     const pct = t.activity === 'pending' ? '' : Math.round(t.confidence * 100) + '%';
     const r = ruleDetail(t, rules);
-    const bar = r.bar !== undefined
-      ? `<div class="bar"><i style="width:${(r.bar * 100).toFixed(0)}%"></i></div>` : '';
+    // Only a blocked track names a rule; normal and warm-up have none to name
+    const tag = r.rule ? `<div class="rule">${r.rule} rule</div>` : '';
 
     return `<div class="trk">
       <div class="top">
         <span class="id">child #${t.track_id}</span>
-        <span class="pill ${dangerous ? t.activity : ''}">${t.activity} ${pct}</span>
-      </div>
-      <div class="why ${r.fire ? 'fire' : ''}">${r.text}</div>${bar}
+        <span class="pill ${cls}">${t.activity} ${pct}</span>
+      </div>${tag}
+      <div class="why ${r.fire ? 'fire' : ''}">${r.text}</div>
     </div>`;
   }).join('');
 }
@@ -235,10 +281,19 @@ function renderAlerts(alerts, total) {
     : '<div class="empty">no alerts yet</div>';
 }
 
+let timer = null;
+
 async function tick() {
   try {
     const d = await (await fetch('/api/state')).json();
     renderStatus(d);
+
+    // Once the run is over the state cannot change again, so stop polling.
+    // Without this the page kept requesting once a second indefinitely.
+    if ((d.finished || d.error) && timer !== null) {
+      clearInterval(timer);
+      timer = null;
+    }
     $('people').textContent = d.people ?? 0;
     $('frames').textContent = d.frames ?? 0;
     $('fps').textContent = d.fps ?? 0;
@@ -251,7 +306,7 @@ async function tick() {
 }
 
 tick();
-setInterval(tick, 1000);
+timer = setInterval(tick, 1000);
 </script>
 
 </body>
