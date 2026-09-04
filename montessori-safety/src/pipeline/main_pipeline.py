@@ -10,6 +10,7 @@ import os
 import sys
 import time
 import argparse
+from collections import Counter
 
 import cv2
 import numpy as np
@@ -26,12 +27,58 @@ from src.pose.extract_child_poses import onnx_device
 KEYPOINT_THRESHOLD = 0.3
 ALERT_THRESHOLD = 0.70
 
+# OpenCV is BGR, not RGB
 COLORS = {
     'normal': (0, 200, 0),
-    'fall': (0, 0, 255),
+    'fall': (255, 60, 0),
     'climb': (0, 140, 255),
     'pending': (160, 160, 160),
 }
+
+# Box colours are saturated so they read against the scene; the same values as
+# text on a dark panel come out muddy, so labels use lighter tints
+TEXT_COLORS = {
+    'normal': (120, 240, 120),
+    'fall': (255, 190, 120),
+    'climb': (90, 200, 255),
+    'pending': (200, 200, 200),
+}
+
+# Red is reserved for a fired alert, so it never competes with a class colour
+ALERT_COLOR = (80, 80, 255)
+
+FONT = cv2.FONT_HERSHEY_SIMPLEX
+WHITE = (255, 255, 255)
+DIM = (190, 190, 190)
+
+
+def draw_text_block(frame, x, y, lines, scale=0.5, pad=5, bg=(0, 0, 0),
+                    alpha=0.75):
+    """Text over a translucent panel.
+
+    The classroom footage is pale and already carries the camera's own burnt-in
+    timestamp, so plain putText disappears against it. Returns the height used.
+    """
+    thick = 1
+    sizes = [cv2.getTextSize(t, FONT, scale, thick)[0] for t, _ in lines]
+    w = max(s[0] for s in sizes) + pad * 2
+    line_h = max(s[1] for s in sizes) + 6
+    h = line_h * len(lines) + pad
+
+    x = max(0, min(x, frame.shape[1] - w))
+    y = max(0, min(y, frame.shape[0] - h))
+
+    panel = frame[y:y + h, x:x + w]
+    if panel.size:
+        cv2.addWeighted(panel, 1 - alpha,
+                        np.full(panel.shape, bg, np.uint8), alpha, 0, panel)
+
+    ty = y + line_h - 2
+    for (text, colour), size in zip(lines, sizes):
+        cv2.putText(frame, text, (x + pad, ty), FONT, scale, colour, thick,
+                    cv2.LINE_AA)
+        ty += line_h
+    return h
 
 
 def match_pose_to_box(bbox, keypoints_all, scores_all):
@@ -60,7 +107,8 @@ def match_pose_to_box(bbox, keypoints_all, scores_all):
 def run(source, model_path, zones_path, alert_threshold, use_rules,
         display, save_path,
         # --- Phase A verification (NEXT_PHASE_PLAN §4-A) ---
-        use_verifier=True, consecutive=3, rules_mode='veto',
+        use_verifier=True, min_frames=None, min_duration=None, rules_mode='veto',
+        use_climb_veto=True,
         # --- end Phase A verification ---
         # --- Dashboard hook ---
         on_frame=None, enable_sound=True, stop_flag=None):
@@ -78,7 +126,9 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
     elif zones_path:
         print(f"  [WARNING] Zone config not found: {zones_path} — zones disabled")
 
-    alerts = AlertSystem(cooldown_seconds=10, enable_sound=enable_sound)
+    # 7s of video time, cut from 10s after test runs showed a single event
+    # staying suppressed well past the point where a new alert was wanted
+    alerts = AlertSystem(cooldown_seconds=7, enable_sound=enable_sound)
 
     # --- Phase A verification (NEXT_PHASE_PLAN §4-A) ---
     verifier = None
@@ -87,15 +137,21 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
         # In 'detector' mode the rules produced the label, so vetoing with the
         # same detector would only ever confirm its own output
         veto_detector = rules if rules_mode in ('veto', 'both') else None
+        # None lets the verifier use its measured per-class thresholds; passing
+        # a single number here would override both classes with one value
         verifier = AlertVerifier(
             threshold=alert_threshold,
-            consecutive_required=consecutive,
+            min_frames=min_frames,
+            min_duration=min_duration,
             alert_system=alerts,
             rule_detector=veto_detector,
+            use_climb_veto=use_climb_veto,
         )
-        print(f"  AlertVerifier: threshold {alert_threshold}, "
-              f"consecutive {consecutive}, rules={rules_mode}, "
-              f"geometry veto {'on' if veto_detector else 'off'}")
+        print(f"  AlertVerifier: threshold {verifier.threshold}, "
+              f"min_frames {verifier.min_frames}, "
+              f"min_duration {verifier.min_duration}, rules={rules_mode}, "
+              f"geometry veto {'on' if veto_detector else 'off'}"
+              f"{'' if use_climb_veto else ' (climb veto off)'}")
     # --- end Phase A verification ---
 
     cap = cv2.VideoCapture(int(source) if str(source).isdigit() else source)
@@ -107,6 +163,9 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
+    source_name = ('webcam' if str(source).isdigit()
+                   else os.path.basename(str(source)))
+
     writer = None
     if save_path:
         os.makedirs(os.path.dirname(save_path) or '.', exist_ok=True)
@@ -114,7 +173,7 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
                                  fps, (width, height))
 
     print(f"\n  Source: {source} ({width}x{height} @ {fps:.1f}fps)")
-    print(f"  Alert threshold: {alert_threshold}")
+    print(f"  Alert threshold: {alert_threshold if alert_threshold else 'per class'}")
     if display:
         print("  'q' quits, space pauses\n")
 
@@ -136,6 +195,9 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
             keypoints_all, scores_all = pose.extract(frame)
 
             active_ids = []
+            # One row per child this frame — drives both the on-frame overlay
+            # and the dashboard's per-child rule display
+            frame_tracks = []
 
             for det in detections:
                 tid = det['track_id']
@@ -177,11 +239,32 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
                         # --- end Phase A verification ---
 
                 # --- Phase A verification (NEXT_PHASE_PLAN §4-A) ---
+                decision = None
                 if verifier is not None:
-                    fire = verifier.should_alert(tid, label, conf, geom)['alert']
+                    # Video time, not wall clock — a clip processed slower than
+                    # real time would never satisfy a duration rule otherwise
+                    decision = verifier.should_alert(
+                        tid, label, conf, geom,
+                        timestamp=frame_idx / fps if fps else None,
+                    )
+                    fire = decision['alert']
                 else:
-                    fire = label in ('fall', 'climb') and conf >= alert_threshold
+                    # No verifier: fall back to a single flat threshold
+                    fire = (label in ('fall', 'climb')
+                            and conf >= (alert_threshold or ALERT_THRESHOLD))
                 # --- end Phase A verification ---
+
+                frame_tracks.append({
+                    'track_id': int(tid),
+                    'activity': label,
+                    'confidence': round(float(conf), 3),
+                    'source': source_tag,
+                    'alert': bool(fire),
+                    # 'not_dangerous' here means normal or still warming up,
+                    # which is why the page labels it separately
+                    'rejected_by': decision['rejected_by'] if decision else None,
+                    'progress': decision.get('progress') if decision else None,
+                })
 
                 if fire:
                     alerts.trigger_alert(
@@ -192,6 +275,7 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
                         # refuses — this breaks both save_log() and the dashboard
                         location=(int((bbox[0] + bbox[2]) // 2), int(bbox[3])),
                         frame=frame,
+                        timestamp=frame_idx / fps if fps else None,
                     )
 
                 if zones is not None:
@@ -202,21 +286,33 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
                             person_id=int(tid),
                             location=tuple(int(v) for v in za['location']),
                             frame=frame,
+                            timestamp=frame_idx / fps if fps else None,
                         )
 
                 colour = COLORS.get(label, COLORS['pending'])
-                cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), colour, 2)
+                text_colour = TEXT_COLORS.get(label, TEXT_COLORS['pending'])
+                thickness = 3 if fire else 2
+                cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]),
+                              colour, thickness)
 
                 if label == 'pending':
-                    have, need = classifier.buffer_progress(tid)
-                    text = f"#{tid} warming up {have}/{need}"
+                    lines = [(f"#{tid} detecting", text_colour)]
                 else:
-                    text = f"#{tid} {label} {conf:.2f}"
+                    head = f"#{tid} {label} {conf:.0%}"
                     if source_tag == 'rule':
-                        text += " [rule]"
+                        head += " [rule]"
+                    lines = [(head, text_colour)]
 
-                cv2.putText(frame, text, (bbox[0], max(bbox[1] - 8, 15)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, colour, 2)
+                    # Only a fired alert earns a second line. The rule-by-rule
+                    # detail lives on the dashboard, where there is room for it.
+                    if fire:
+                        lines.append(("ALERT", ALERT_COLOR))
+
+                # Above the box when there is room, otherwise just inside it, so
+                # a child near the top edge does not lose their label off-frame
+                label_h = 20 * len(lines) + 4
+                ly = bbox[1] - label_h if bbox[1] > label_h else bbox[1] + 2
+                draw_text_block(frame, bbox[0], ly, lines)
 
             classifier.cleanup(active_ids)
             if rules is not None:
@@ -229,8 +325,28 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
                 zones.cleanup(active_ids)
                 frame = zones.draw_zones(frame)
 
-            cv2.putText(frame, f"people: {len(active_ids)}  alerts: {len(alerts.alert_log)}",
-                        (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            # Bottom-left, because these cameras burn their own timestamp across
+            # the top of the frame and the two overlap there
+            elapsed = time.time() - started_at
+            v_sec = frame_idx / fps if fps else 0
+            counts = Counter(r['activity'] for r in frame_tracks)
+            seen = "  ".join(f"{k} {n}" for k, n in counts.items()) or "nobody"
+
+            n_alerts = len(alerts.alert_log)
+            draw_text_block(frame, 8, height - 62, [
+                (f"{source_name}   {int(v_sec // 60):02d}:{int(v_sec % 60):02d}"
+                 f" video   {frame_idx / elapsed:.1f} fps processing"
+                 if elapsed > 0 else source_name, WHITE),
+                (f"people {len(active_ids)}   {seen}", DIM),
+            ], scale=0.55)
+
+            # Top right, the one corner these cameras leave clear. Kept separate
+            # from the counts so a single past alert does not colour the whole
+            # status line as though everything were alarming.
+            if n_alerts:
+                draw_text_block(frame, width - 150, 8,
+                                [(f"ALERTS  {n_alerts}", ALERT_COLOR)],
+                                scale=0.6)
 
             if writer is not None:
                 writer.write(frame)
@@ -245,6 +361,11 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
                     'uptime_sec': round(elapsed, 1),
                     'alerts': list(alerts.alert_log),
                     'verifier': verifier.stats() if verifier is not None else None,
+                    # Sent every frame rather than once, because the page may be
+                    # opened at any point during a run and has no other source
+                    'rules': verifier.config() if verifier is not None else None,
+                    'tracks': frame_tracks,
+                    'video_time_sec': round(frame_idx / fps, 1) if fps else None,
                 })
             # --- end Dashboard hook ---
 
@@ -292,8 +413,9 @@ def main():
                         default='models/saved/child_cnn_lstm_best.pth')
     parser.add_argument('--zones', type=str, default=None,
                         help='Path to configs/zones.json (omit to disable zones)')
-    parser.add_argument('--threshold', type=float, default=ALERT_THRESHOLD,
-                        help='Minimum confidence before an alert fires')
+    parser.add_argument('--threshold', type=float, default=None,
+                        help='Override the per-class thresholds with one value '
+                             '(default: fall 0.70 / climb 0.90)')
     parser.add_argument('--no-rules', action='store_true',
                         help='Disable the geometric safety net')
     parser.add_argument('--no-display', action='store_true')
@@ -308,13 +430,20 @@ def main():
     # --- Phase A verification (NEXT_PHASE_PLAN §4-A) ---
     parser.add_argument('--no-verifier', action='store_true',
                         help='Bypass the Phase A rules and alert on threshold alone')
-    parser.add_argument('--consecutive', type=int, default=3,
-                        help='Predictions in a row required before alerting')
+    parser.add_argument('--min-frames', type=int, default=None,
+                        help='Frames an activity must persist (default: per class, '
+                             'fall 12 / climb 30)')
+    parser.add_argument('--min-duration', type=float, default=None,
+                        help='Seconds an activity must persist (default: per class, '
+                             'fall 0.4 / climb 1.0)')
     parser.add_argument('--rules-mode', choices=['veto', 'detector', 'both'],
                         default='veto',
                         help="veto: rules only reject implausible predictions (A5). "
                              "detector: rules also raise their own detections. "
                              "both: rules do each, which lets them validate themselves")
+    parser.add_argument('--no-climb-veto', action='store_true',
+                        help='Keep the fall veto but drop the climb one, which '
+                             'costs ~1 in 10 real climbs for a 20%% cut in false ones')
     # --- end Phase A verification ---
     args = parser.parse_args()
 
@@ -333,8 +462,10 @@ def main():
         save_path=save_path,
         # --- Phase A verification (NEXT_PHASE_PLAN §4-A) ---
         use_verifier=not args.no_verifier,
-        consecutive=args.consecutive,
+        min_frames=args.min_frames,
+        min_duration=args.min_duration,
         rules_mode=args.rules_mode,
+        use_climb_veto=not args.no_climb_veto,
         # --- end Phase A verification ---
         # --- Dashboard hook ---
         enable_sound=not args.no_sound)
