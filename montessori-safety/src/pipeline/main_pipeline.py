@@ -51,6 +51,9 @@ FONT = cv2.FONT_HERSHEY_SIMPLEX
 WHITE = (255, 255, 255)
 DIM = (190, 190, 190)
 
+# How long the end-of-video card stays on the OpenCV window before it closes
+END_CARD_MS = 4000
+
 
 def draw_text_block(frame, x, y, lines, scale=0.5, pad=5, bg=(0, 0, 0),
                     alpha=0.75):
@@ -79,6 +82,17 @@ def draw_text_block(frame, x, y, lines, scale=0.5, pad=5, bg=(0, 0, 0),
                     cv2.LINE_AA)
         ty += line_h
     return h
+
+
+def draw_end_card(frame):
+    """A blank frame to show once the clip is over.
+
+    Blank rather than the dimmed last frame: leaving the final frame visible
+    kept stale boxes and labels on screen, which read as though the system were
+    still tracking. The summary itself is reported above the video rather than
+    drawn over it.
+    """
+    return np.zeros_like(frame)
 
 
 def match_pose_to_box(bbox, keypoints_all, scores_all):
@@ -126,9 +140,10 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
     elif zones_path:
         print(f"  [WARNING] Zone config not found: {zones_path} — zones disabled")
 
-    # 7s of video time, cut from 10s after test runs showed a single event
-    # staying suppressed well past the point where a new alert was wanted
-    alerts = AlertSystem(cooldown_seconds=7, enable_sound=enable_sound)
+    # 4s of video time. Short enough that a child still on the floor alarms
+    # again rather than falling silent, and still longer than the ~3.3s alarm
+    # itself, so consecutive alarms do not overlap into continuous noise.
+    alerts = AlertSystem(cooldown_seconds=4, enable_sound=enable_sound)
 
     # --- Phase A verification (NEXT_PHASE_PLAN §4-A) ---
     verifier = None
@@ -179,6 +194,10 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
 
     frame_idx = 0
     started_at = time.time()
+    # The last annotated frame, kept so the end-of-video card can be drawn over
+    # it once the source runs out — cap.read() returns None at that point
+    last_frame = None
+    reached_end = False
     try:
         while True:
             # --- Dashboard hook ---
@@ -189,6 +208,7 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
 
             ret, frame = cap.read()
             if not ret:
+                reached_end = True
                 break
 
             detections = detector.detect(frame)
@@ -377,7 +397,29 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
                 if key == ord('q'):
                     break
 
+            last_frame = frame
             frame_idx += 1
+
+        if reached_end and last_frame is not None:
+            ended = draw_end_card(last_frame)
+            if on_frame is not None:
+                elapsed = time.time() - started_at
+                # Nobody is in view any more, so the tracks list is emptied
+                # rather than left showing the last frame's children
+                on_frame(ended, {
+                    'people': 0,
+                    'frames': frame_idx,
+                    'fps': round(frame_idx / elapsed, 1) if elapsed > 0 else 0.0,
+                    'uptime_sec': round(elapsed, 1),
+                    'alerts': list(alerts.alert_log),
+                    'verifier': verifier.stats() if verifier is not None else None,
+                    'rules': verifier.config() if verifier is not None else None,
+                    'tracks': [],
+                    'video_time_sec': round(frame_idx / fps, 1) if fps else None,
+                })
+            if display:
+                cv2.imshow('child safety monitor', ended)
+                cv2.waitKey(END_CARD_MS)
 
     except KeyboardInterrupt:
         print("\n  Interrupted")
