@@ -1,9 +1,11 @@
 """Dashboard server. Runs the pipeline in a background thread and serves it.
 
 Usage:
-    python src/dashboard/app.py --source "data/test data/f69.mp4"
+    python src/dashboard/app.py --source "data/test data/ft1.mp4"
     python src/dashboard/app.py --source 0
-    python src/dashboard/app.py --source 0 --threshold 0.8 --consecutive 10
+    python src/dashboard/app.py --source 0 --threshold 0.8 --min-duration 1.0
+
+Test clips live in data/test data/ — ft* fall, ct* climb, nt* normal.
 """
 
 import os
@@ -21,6 +23,14 @@ from src.pipeline.main_pipeline import run as run_pipeline
 
 JPEG_QUALITY = 70
 
+# How many past alerts the feed carries. Generous enough to be the session's
+# full history in practice, bounded so a long noisy run cannot bloat the poll.
+ALERT_FEED_LIMIT = 300
+
+# Time between the run finishing and the server exiting. The page polls once a
+# second, so this is long enough for it to show the end card and final counts.
+SHUTDOWN_GRACE_SEC = 5
+
 
 class SharedState:
     """One frame slot, not a queue — the browser only ever wants the newest."""
@@ -29,7 +39,8 @@ class SharedState:
         self._lock = threading.Lock()
         self._jpeg = None
         self._stats = {'people': 0, 'frames': 0, 'fps': 0.0, 'uptime_sec': 0.0,
-                       'alerts': [], 'verifier': None}
+                       'alerts': [], 'verifier': None, 'rules': None,
+                       'tracks': [], 'video_time_sec': None}
         self.running = False
         self.finished = False
         self.error = None
@@ -73,8 +84,10 @@ def pipeline_thread(opts):
             display=False,              # the browser is the display
             save_path=opts.save,
             use_verifier=not opts.no_verifier,
-            consecutive=opts.consecutive,
+            min_frames=opts.min_frames,
+            min_duration=opts.min_duration,
             rules_mode=opts.rules_mode,
+            use_climb_veto=not opts.no_climb_veto,
             on_frame=state.update,
             enable_sound=not opts.no_sound,
             stop_flag=stop_flag,
@@ -86,6 +99,18 @@ def pipeline_thread(opts):
         state.running = False
         state.finished = True
 
+        # Nothing can change once the run is over, so hand the terminal back
+        # instead of serving a static page indefinitely. The grace period lets
+        # the browser collect the final frame and the closing statistics first.
+        print(f"\n  Video ended. Shutting down in {SHUTDOWN_GRACE_SEC}s "
+              f"(Ctrl+C to stop now)")
+        time.sleep(SHUTDOWN_GRACE_SEC)
+        print("  Dashboard closed\n")
+        # Flask's development server has no clean programmatic shutdown from a
+        # background thread; the pipeline has already released the capture,
+        # writer and alert log in its own finally block by this point.
+        os._exit(0)
+
 
 @app.route('/')
 def index():
@@ -95,8 +120,12 @@ def index():
 @app.route('/api/state')
 def api_state():
     s = state.stats()
-    # Newest first, and capped so the payload stays small on a long session
-    s['alerts'] = list(reversed(s.get('alerts', [])))[:40]
+    alerts = list(reversed(s.get('alerts', [])))
+    # The page polls once a second, so an unbounded list would keep growing the
+    # payload for the whole session. The true total is sent alongside, so the
+    # header count stays honest even when the list itself is trimmed.
+    s['alert_total'] = len(alerts)
+    s['alerts'] = alerts[:ALERT_FEED_LIMIT]
     return jsonify(s)
 
 
@@ -107,15 +136,25 @@ def api_stop():
 
 
 def mjpeg():
+    """Stream frames until the run ends, then send the last one and stop.
+
+    The earlier exit condition tested for a missing frame, which never happens
+    once one has been produced, so the generator resent the final frame ~33
+    times a second for as long as the browser stayed open.
+    """
     boundary = b'--frame\r\nContent-Type: image/jpeg\r\n\r\n'
     while True:
         buf = state.jpeg()
         if buf is not None:
             yield boundary + buf + b'\r\n'
+
+        if state.finished:
+            # Browsers keep displaying the last frame of a closed stream, so
+            # ending here leaves the final frame on screen rather than a gap
+            break
+
         # Pace the stream — the pipeline produces far fewer frames than this
         time.sleep(0.03)
-        if state.finished and state.jpeg() is None:
-            break
 
 
 @app.route('/video_feed')
@@ -130,15 +169,23 @@ def main():
     parser.add_argument('--model', type=str,
                         default='models/saved/child_cnn_lstm_best.pth')
     parser.add_argument('--zones', type=str, default=None)
-    parser.add_argument('--threshold', type=float, default=0.70)
-    parser.add_argument('--consecutive', type=int, default=3)
+    parser.add_argument('--threshold', type=float, default=None)
+    parser.add_argument('--min-frames', type=int, default=None)
+    parser.add_argument('--min-duration', type=float, default=None)
     parser.add_argument('--rules-mode', choices=['veto', 'detector', 'both'],
                         default='veto')
     parser.add_argument('--no-rules', action='store_true')
     parser.add_argument('--no-verifier', action='store_true')
-    parser.add_argument('--no-sound', action='store_true', default=True,
-                        help='Alarm is off by default here; --sound re-enables it')
-    parser.add_argument('--sound', dest='no_sound', action='store_false')
+    # Kept in step with main_pipeline.py, so a demo can switch a rule off and
+    # the "rules in force" panel reflects it
+    parser.add_argument('--no-climb-veto', action='store_true')
+    # On by default, matching main_pipeline.py. It was previously off here, so
+    # the dashboard was silent unless --sound was remembered every time — a poor
+    # default for an alarm system.
+    parser.add_argument('--no-sound', action='store_true',
+                        help='Silence the alarm')
+    parser.add_argument('--sound', dest='no_sound', action='store_false',
+                        help='Alarm on (the default)')
     parser.add_argument('--save', type=str, default=None)
     parser.add_argument('--port', type=int, default=5000)
     opts = parser.parse_args()
@@ -149,7 +196,8 @@ def main():
 
     threading.Thread(target=pipeline_thread, args=(opts,), daemon=True).start()
 
-    print(f"\n  Dashboard: http://localhost:{opts.port}\n")
+    print(f"\n  Dashboard: http://localhost:{opts.port}")
+    print(f"  Alarm: {'ON' if not opts.no_sound else 'OFF (--sound to enable)'}\n")
     app.run(host='0.0.0.0', port=opts.port, threaded=True,
             debug=False, use_reloader=False)
 
