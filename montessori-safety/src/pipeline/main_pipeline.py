@@ -8,9 +8,11 @@ Usage:
 
 import os
 import sys
+import json
 import time
 import argparse
 from collections import Counter
+from datetime import datetime
 
 import cv2
 import numpy as np
@@ -441,10 +443,27 @@ def run(source, model_path, zones_path, alert_threshold, use_rules,
     for a in alerts.get_recent_alerts(20):
         print(f"    {a['timestamp'][11:19]}  {a['message']}")
 
-    if alerts.alert_log:
-        os.makedirs('logs', exist_ok=True)
-        alerts.save_log('logs/alert_log.json')
-        print("\n  Alert log: logs/alert_log.json")
+    # One file per run so earlier runs are never overwritten. Written even with
+    # no alerts, because a silent run on a normal clip is itself a result.
+    run_started = datetime.fromtimestamp(started_at)
+    log_path = os.path.join(
+        'logs', f"{os.path.splitext(source_name)[0]}_"
+                f"{run_started.strftime('%Y%m%d_%H%M%S')}.json")
+    os.makedirs('logs', exist_ok=True)
+    with open(log_path, 'w') as f:
+        json.dump({
+            'video': source_name,
+            'run_started': run_started.isoformat(timespec='seconds'),
+            'total_alerts': len(alerts.alert_log),
+            'alerts': [{
+                'time': a['timestamp'][11:19],
+                'video_time_sec': a['video_time_sec'],
+                'id': a['person_id'],
+                'activity': a['activity'],
+                'confidence': a['confidence'],
+            } for a in alerts.alert_log],
+        }, f, indent=2)
+    print(f"\n  Alert log: {log_path}")
 
 
 def main():
