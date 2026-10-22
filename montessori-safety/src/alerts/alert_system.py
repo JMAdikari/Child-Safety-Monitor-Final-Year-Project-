@@ -102,6 +102,9 @@ class AlertSystem:
         # Create alert object
         alert = {
             'timestamp': datetime.now().isoformat(),
+            # The wall clock cannot be matched to the ground-truth timeline;
+            # video time can
+            'video_time_sec': round(timestamp, 2) if timestamp is not None else None,
             'activity': activity_type,
             'confidence': round(confidence, 3),
             'person_id': person_id,
